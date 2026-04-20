@@ -1,7 +1,8 @@
 # Watchdog – Zentraler Statusdienst
 
 Watchdog ist ein leichtgewichtiger HTTP-Statusdienst für externe Tools und Skripte.
-Tools melden ihren Status per GET oder POST. Der Dienst speichert den Verlauf, zeigt ein Live-Dashboard und sendet Alert-Mails bei Timeouts.
+Tools melden ihren Status per GET oder POST. Der Dienst speichert den Verlauf,
+zeigt ein Live-Dashboard und sendet Alert-Mails bei Timeouts.
 
 ---
 
@@ -94,40 +95,90 @@ Ein unbekanntes Tool wird beim ersten Aufruf automatisch angelegt.
 
 ---
 
-## Beispiel-Curl-Befehle
+## Beispielaufrufe
+
+### curl (bash / Linux / macOS)
 
 ```bash
-# Backup gestartet
-curl "http://watchdog.example.com/watchdog?server=db01&dienst=backup&gruppe=Backup/Datenbank&status=start&kommentar=Backup+gestartet&pid=1234"
+# Status melden (GET)
+curl "http://watchdog.example.com/watchdog?server=db01&dienst=backup&gruppe=Backup/DB&status=start&kommentar=Gestartet&pid=1234"
 
-# Backup erfolgreich beendet
-curl "http://watchdog.example.com/watchdog?server=db01&dienst=backup&status=stop&kommentar=Backup+OK&pid=1234"
-
-# Fehler melden
+# Status melden (POST, JSON)
 curl -X POST http://watchdog.example.com/watchdog \
   -H "Content-Type: application/json" \
-  -d '{"server":"db01","dienst":"backup","status":"fehler","kommentar":"Verbindung abgebrochen"}'
+  -d '{"server":"db01","dienst":"backup","status":"stop","kommentar":"OK","pid":"1234"}'
 
-# In Shell-Skripten (Heartbeat)
+# In Shell-Skripten (Heartbeat-Pattern)
 curl -sf "http://watchdog.example.com/watchdog?server=$(hostname)&dienst=myjob&status=start" || true
 # ... Job-Logik ...
 curl -sf "http://watchdog.example.com/watchdog?server=$(hostname)&dienst=myjob&status=stop" || true
+```
+
+### PowerShell (Windows)
+
+```powershell
+# Status melden (POST)
+Invoke-RestMethod -Uri "http://watchdog.example.com/watchdog" `
+  -Method Post `
+  -Body @{
+    server    = $env:COMPUTERNAME
+    dienst    = "backup"
+    status    = "start"
+    kommentar = "Backup gestartet"
+  }
+
+# In PowerShell-Skripten (Heartbeat-Pattern)
+Invoke-RestMethod "http://watchdog.example.com/watchdog?server=$env:COMPUTERNAME&dienst=myjob&status=start"
+# ... Job-Logik ...
+Invoke-RestMethod "http://watchdog.example.com/watchdog?server=$env:COMPUTERNAME&dienst=myjob&status=stop"
+```
+
+### Python (Stdlib, kein requests nötig)
+
+```python
+import urllib.request, urllib.parse, socket
+
+BASE = "http://watchdog.example.com/watchdog"
+
+def ping(status: str, kommentar: str = "", pid: str = ""):
+    params = urllib.parse.urlencode({
+        "server":    socket.gethostname(),
+        "dienst":   "myjob",
+        "status":   status,
+        "kommentar": kommentar,
+        "pid":       pid,
+    })
+    urllib.request.urlopen(f"{BASE}?{params}", timeout=5)
+
+# Verwendung
+ping("start", "Job gestartet")
+# ... Job-Logik ...
+ping("stop", "Fertig")
 ```
 
 ---
 
 ## Dashboard
 
-Aufrufbar unter `/` – zeigt alle Tools gruppiert nach `gruppe`, farblich nach Status:
+Aufrufbar unter `/` – industrielles Dark-UI mit Sidebar und Detailpanel:
+
+| Element | Beschreibung |
+|---|---|
+| **Sidebar** | Liste aller Services mit Status-Dot (pulsierend bei OK), Alter des letzten Pings, Intervall und **LATE**-Badge bei Timeout |
+| **Overview-Tab** | Ping-History-Strip (60 Slots farbcodiert), Endpoint-URL mit kopierbaren Code-Snippets (curl, PowerShell, Python) |
+| **History-Tab** | Chronologische Ereignisliste der letzten 20 Meldungen |
+| **Statusleiste** | Uhrzeit + Versionsnummer unten links in der Sidebar |
+
+**Status-Farbcodierung:**
 
 | Farbe | Bedeutung |
 |---|---|
 | Grün | `start` – Tool läuft |
 | Grau | `stop` – Tool beendet |
-| Orange | `fehler` – Fehler gemeldet |
-| Rot | Timeout – seit zu langer Zeit keine Meldung |
+| Amber | `update` – Info-Meldung |
+| Rot | `fehler` oder Timeout überschritten |
 
-Das Dashboard aktualisiert sich automatisch alle 30 Sekunden via JavaScript-Polling.
+Das Dashboard aktualisiert sich automatisch alle 30 Sekunden.
 
 ---
 
@@ -135,10 +186,11 @@ Das Dashboard aktualisiert sich automatisch alle 30 Sekunden via JavaScript-Poll
 
 | URL | Funktion |
 |---|---|
-| `/admin/tools` | Liste aller Tools, löschen, neu anlegen |
-| `/admin/tools/<id>` | Tool-Konfiguration bearbeiten |
-| `/admin/tools/<id>/history` | Meldungshistorie eines Tools |
-| `/admin/config` | SMTP-Konfiguration, Alert-Empfänger |
+| `/admin/tools` | Liste aller Tools, neu anlegen, löschen |
+| `/admin/tools/new` | Tool manuell anlegen |
+| `/admin/tools/<id>` | Gruppe, Timeout-Stunden, monatlichen Lauftag bearbeiten |
+| `/admin/tools/<id>/history` | Meldungshistorie einsehen, Einträge manuell als „OK" markieren |
+| `/admin/config` | SMTP-Host/Port, Alert-Empfänger, Check-Intervall, Toleranztage |
 
 ---
 
@@ -151,8 +203,7 @@ Ein Tool gilt als ausgefallen, wenn `now − last_seen > timeout_hours` (Default
 ### Monatlicher Timeout
 
 Wenn `monthly_day` gesetzt ist, erwartet Watchdog eine Meldung jeden Monat an diesem Tag.
-Fehlt eine Meldung länger als `monthly_grace_days` (Default: 5) nach dem erwarteten Tag,
-wird ein Alert verschickt.
+Fehlt sie länger als `monthly_grace_days` (Default: 5 Tage) nach dem erwarteten Tag, wird ein Alert verschickt.
 
 ### Alert-Mail
 
@@ -165,13 +216,11 @@ wird ein Alert verschickt.
 ## Datenbankpfad
 
 Die SQLite-Datenbank liegt unter `instance/watchdog.db` und wird beim ersten Start automatisch angelegt.
+Der `instance/`-Ordner ist in `.gitignore` ausgeschlossen.
 
 ---
 
-## Tests ausführen
+## Versionierung
 
-```bash
-PYTHONIOENCODING=utf-8 uv run python test_phase2.py
-PYTHONIOENCODING=utf-8 uv run python test_phase3.py
-PYTHONIOENCODING=utf-8 uv run python test_phase4.py
-```
+Die Version wird zur Laufzeit aus `pyproject.toml` gelesen und im Dashboard (Sidebar, unten links) angezeigt.
+Nach jeder abgeschlossenen Phase oder Feature-Umsetzung das `version`-Feld in `pyproject.toml` erhöhen.

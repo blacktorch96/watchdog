@@ -1,11 +1,26 @@
 """Dashboard blueprint."""
 
+import os
+import tomllib
 from flask import Blueprint, render_template, jsonify
 from app.database import get_db
 from datetime import datetime, timedelta
 
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='')
+
+
+def _read_version() -> str:
+    """Read project version from pyproject.toml."""
+    try:
+        toml_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pyproject.toml')
+        with open(toml_path, 'rb') as f:
+            return tomllib.load(f)['project']['version']
+    except Exception:
+        return 'dev'
+
+
+APP_VERSION = _read_version()
 
 
 def build_group_tree(tools):
@@ -73,7 +88,7 @@ def check_timeout(tool):
 @dashboard_bp.route('/')
 def index():
     """Main dashboard view."""
-    return render_template('dashboard.html')
+    return render_template('dashboard.html', version=APP_VERSION)
 
 
 @dashboard_bp.route('/api/status')

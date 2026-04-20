@@ -92,7 +92,10 @@
       <div style="padding:10px 14px 6px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>
       <div id="svc-list"></div>
       <div style="flex:1"></div>
-      <div id="clock" style="padding:10px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--text2);font-family:var(--font-mono)"></div>
+      <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span id="clock" style="font-size:10px;color:var(--text2);font-family:var(--font-mono)"></span>
+        <span style="font-size:10px;color:var(--border2);font-family:var(--font-mono)">v{{ version }}</span>
+      </div>
     </div>
 
     <!-- Detail Panel -->
@@ -286,11 +289,22 @@ function renderTabBody(tool, history) {
           </div>
         </div>
         <div>
-          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">ENDPOINT</div>
-          <div class="code-block">
-            <div style="color:var(--text2);font-size:10px;margin-bottom:4px">GET · POST</div>
-            <code style="color:var(--blue)">${host}/watchdog?server=${esc(tool.server)}&amp;dienst=${esc(tool.dienst)}&amp;status=start</code>
-            <div style="margin-top:8px;color:var(--text2);font-size:11px">curl "${host}/watchdog?server=${esc(tool.server)}&amp;dienst=${esc(tool.dienst)}&amp;status=start"</div>
+          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:8px">ENDPOINT</div>
+          <div class="code-block" style="padding:10px 12px;margin-bottom:6px">
+            <span style="color:var(--text2);font-size:10px">GET · POST &nbsp;</span><code style="color:var(--blue);font-size:12px;word-break:break-all">${host}/watchdog?server=${esc(tool.server)}&amp;dienst=${esc(tool.dienst)}&amp;status=…</code>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            ${['curl','PowerShell','Python','ASP Classic'].map(lang =>
+              `<button onclick="toggleSnippet('${lang}',${tool.id},'${host}','${esc(tool.server)}','${esc(tool.dienst)}')"
+                id="pill-${lang.replace(' ','')}-${tool.id}"
+                style="font-size:10px;font-family:var(--font-mono);padding:3px 9px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;transition:all 0.15s">${lang}</button>`
+            ).join('')}
+          </div>
+          <div id="snip-box-${tool.id}" style="display:none">
+            <div class="code-block" style="position:relative;padding:10px 12px">
+              <button onclick="copySnippet('snip-active-${tool.id}')" style="position:absolute;top:8px;right:8px;font-size:9px;color:var(--text2);background:none;border:1px solid var(--border);border-radius:3px;padding:1px 6px;cursor:pointer;font-family:var(--font-mono)">copy</button>
+              <code id="snip-active-${tool.id}" style="color:var(--blue);white-space:pre-wrap;display:block;padding-right:40px"></code>
+            </div>
           </div>
         </div>
       </div>`;
@@ -361,6 +375,54 @@ async function init() {
   const saved = parseInt(localStorage.getItem('wd-selected'));
   const target = (saved && tools.find(t => t.id === saved)) ? saved : (tools[0] && tools[0].id);
   if (target) await selectTool(target);
+}
+
+const SNIPPETS = {
+  'curl':        (h,s,d) => `curl "${h}/watchdog?server=${s}&dienst=${d}&status=start&kommentar=OK"`,
+  'PowerShell':  (h,s,d) => `Invoke-RestMethod -Uri "${h}/watchdog" \`\n  -Method Post \`\n  -Body @{\n    server    = "${s}"\n    dienst    = "${d}"\n    status    = "start"\n    kommentar = "OK"\n  }`,
+  'Python':      (h,s,d) => `import urllib.request, urllib.parse\n\nurllib.request.urlopen(\n    "${h}/watchdog?" + urllib.parse.urlencode({\n        "server":    "${s}",\n        "dienst":   "${d}",\n        "status":   "start",\n        "kommentar": "OK",\n    })\n)`,
+  'ASP Classic': (h,s,d) => `<%\nDim http\nSet http = Server.CreateObject("MSXML2.ServerXMLHTTP")\nhttp.Open "POST", "${h}/watchdog", False\nhttp.setRequestHeader "Content-Type", "application/x-www-form-urlencoded"\nhttp.Send "server=${s}&dienst=${d}&status=start&kommentar=OK"\nSet http = Nothing\n%>`,
+};
+
+let activeSnippetLang = {};
+
+function toggleSnippet(lang, toolId, host, server, dienst) {
+  const box  = document.getElementById(`snip-box-${toolId}`);
+  const code = document.getElementById(`snip-active-${toolId}`);
+  const pills = ['curl','PowerShell','Python','ASP Classic'];
+
+  if (activeSnippetLang[toolId] === lang) {
+    // collapse
+    box.style.display = 'none';
+    activeSnippetLang[toolId] = null;
+    pills.forEach(l => {
+      const p = document.getElementById(`pill-${l.replace(' ','')}-${toolId}`);
+      if (p) { p.style.background = 'var(--bg3)'; p.style.color = 'var(--text2)'; p.style.borderColor = 'var(--border)'; }
+    });
+    return;
+  }
+
+  activeSnippetLang[toolId] = lang;
+  code.textContent = SNIPPETS[lang](host, server, dienst);
+  box.style.display = 'block';
+
+  pills.forEach(l => {
+    const p = document.getElementById(`pill-${l.replace(' ','')}-${toolId}`);
+    if (!p) return;
+    const active = l === lang;
+    p.style.background    = active ? 'var(--blue)' : 'var(--bg3)';
+    p.style.color         = active ? '#fff'         : 'var(--text2)';
+    p.style.borderColor   = active ? 'var(--blue)'  : 'var(--border)';
+  });
+}
+
+function copySnippet(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const btn = el.previousElementSibling ? el.parentElement.querySelector('button') : null;
+    if (btn) { const orig = btn.textContent; btn.textContent = 'copied!'; btn.style.color = 'var(--ok)'; setTimeout(() => { btn.textContent = orig; btn.style.color = 'var(--text2)'; }, 1500); }
+  });
 }
 
 init();
