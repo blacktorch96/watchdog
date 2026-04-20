@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+instance/
+watchdog.db
+
+
+# claude
+tasks/
+claude.md
+design.md
+project_conventions.md
+.claude/
+.mypy_cache/

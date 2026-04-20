@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watchdog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg0: #0d0f12;
+    --bg1: #131619;
+    --bg2: #191d21;
+    --bg3: #1f2429;
+    --border: #2a2f36;
+    --border2: #343b44;
+    --text0: #e8ecf0;
+    --text1: #a0aab4;
+    --text2: #606b76;
+    --ok: #22c55e;
+    --ok-dim: rgba(34,197,94,0.12);
+    --warn: #f59e0b;
+    --warn-dim: rgba(245,158,11,0.12);
+    --err: #ef4444;
+    --err-dim: rgba(239,68,68,0.12);
+    --blue: #3b82f6;
+    --font-ui: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html, body { height: 100%; background: var(--bg0); color: var(--text0); font-family: var(--font-ui); overflow: hidden; }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:translateX(0)} }
+
+  #app { height: 100vh; display: flex; flex-direction: column; }
+  #topbar { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--bg1); flex-shrink: 0; }
+  #main { flex: 1; display: flex; overflow: hidden; }
+  #sidebar { width: 220px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--bg1); overflow-y: auto; display: flex; flex-direction: column; }
+  #detail { flex: 1; overflow: hidden; background: var(--bg1); display: flex; flex-direction: column; }
+
+  .svc-item { padding: 10px 14px; cursor: pointer; border-radius: 6px; margin: 1px 6px; border-left: 2px solid transparent; transition: background 0.15s; animation: slideIn 0.2s ease; }
+  .svc-item:hover { background: var(--bg2); }
+  .svc-item.active { background: var(--bg3); border-left-color: var(--blue); }
+
+  .tab-btn { padding: 10px 14px; background: none; border: none; cursor: pointer; font-size: 12px; font-family: var(--font-ui); font-weight: 500; color: var(--text2); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s; text-transform: capitalize; }
+  .tab-btn.active { color: var(--text0); border-bottom-color: var(--blue); }
+
+  .code-block { background: var(--bg2); border-radius: 6px; padding: 12px 14px; border: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px; color: var(--text1); }
+
+  .hist-row { display: grid; grid-template-columns: 150px 70px 1fr; padding: 7px 10px; border-radius: 4px; align-items: center; gap: 8px; }
+  .hist-row:nth-child(even) { background: var(--bg2); }
+
+  .dark-input { background: var(--bg2); border: 1px solid var(--border2); border-radius: 5px; padding: 8px 10px; color: var(--text0); font-family: var(--font-mono); font-size: 13px; outline: none; width: 100%; }
+  .dark-input:focus { border-color: var(--blue); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top Bar -->
+  <div id="topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--text0);letter-spacing:-0.02em">
+        <span id="tb-dot" style="color:var(--ok)">●</span> watchdog
+      </span>
+      <span style="width:1px;height:16px;background:var(--border);display:inline-block"></span>
+      <span id="tb-count" style="font-size:11px;color:var(--text2);font-family:var(--font-mono)">— services</span>
+    </div>
+    <div style="display:flex;gap:16px;align-items:center">
+      <div id="tb-stats" style="display:flex;gap:16px"></div>
+      <div style="display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:4px;background:var(--bg3);border:1px solid var(--border)">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--ok);animation:pulse 1.5s ease-in-out infinite;display:block"></span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">LIVE</span>
+      </div>
+      <a href="/admin/tools" style="font-size:11px;color:var(--text2);font-family:var(--font-mono);text-decoration:none;padding:3px 8px;border-radius:4px;border:1px solid var(--border)">Admin →</a>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div style="padding:10px 14px 6px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>
+      <div id="svc-list"></div>
+      <div style="flex:1"></div>
+      <div id="clock" style="padding:10px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--text2);font-family:var(--font-mono)"></div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div id="detail">
+      <div id="detail-empty" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text2);font-family:var(--font-mono);font-size:13px">
+        Einen Service auswählen
+      </div>
+      <div id="detail-content" style="display:none;height:100%;flex-direction:column;animation:fadeIn 0.2s ease">
+        <div id="d-header" style="padding:20px 24px 16px;border-bottom:1px solid var(--border);flex-shrink:0"></div>
+        <div id="d-tabs" style="display:flex;border-bottom:1px solid var(--border);padding:0 24px;flex-shrink:0"></div>
+        <div id="d-body" style="flex:1;overflow:auto;padding:20px 24px"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let tools = [];
+let selectedId = null;
+let currentTab = 'overview';
+let historyCache = {};
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function mapStatus(tool) {
+  if (tool.is_timeout) return 'error';
+  return {start:'ok', stop:'neutral', fehler:'error', update:'warn'}[tool.status] || 'neutral';
+}
+
+function mapHistStatus(s) {
+  return {start:'ok', stop:'neutral', fehler:'error', update:'warn'}[s] || 'neutral';
+}
+
+function dotColor(s) {
+  return s === 'ok' ? 'var(--ok)' : s === 'warn' ? 'var(--warn)' : s === 'error' ? 'var(--err)' : 'var(--text2)';
+}
+
+function fmtAge(isoStr) {
+  if (!isoStr) return 'never';
+  const diff = Math.floor((Date.now() - new Date(isoStr.includes('Z') ? isoStr : isoStr + 'Z')) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+
+function fmtInterval(hours) {
+  if (!hours) return null;
+  const s = hours * 3600;
+  return s < 3600 ? `${Math.round(s/60)}m` : s < 86400 ? `${Math.round(s/3600)}h` : `${Math.round(s/86400)}d`;
+}
+
+function fmtDateTime(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr.includes('Z') ? isoStr : isoStr + 'Z');
+  return d.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Clock ──────────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('de-DE');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Top Bar ────────────────────────────────────────────────────────────────────
+function renderTopBar() {
+  const statuses = tools.map(t => mapStatus(t));
+  const nOk  = statuses.filter(s => s === 'ok').length;
+  const nWarn = statuses.filter(s => s === 'warn').length;
+  const nErr  = statuses.filter(s => s === 'error').length;
+  const overall = nErr > 0 ? 'error' : nWarn > 0 ? 'warn' : 'ok';
+
+  document.getElementById('tb-dot').style.color = dotColor(overall);
+  document.getElementById('tb-count').textContent = `${tools.length} services`;
+  document.getElementById('tb-stats').innerHTML = [
+    {label:'OK',   count:nOk,   color:'var(--ok)'},
+    {label:'WARN', count:nWarn, color:'var(--warn)'},
+    {label:'DOWN', count:nErr,  color:'var(--err)'},
+  ].map(s => `<div style="display:flex;align-items:center;gap:5px">
+    <span style="font-size:10px;color:var(--text2);letter-spacing:0.06em">${s.label}</span>
+    <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:${s.color}">${s.count}</span>
+  </div>`).join('');
+}
+
+// ── Sidebar ────────────────────────────────────────────────────────────────────
+function renderSidebar() {
+  document.getElementById('svc-list').innerHTML = tools.map(tool => {
+    const status = mapStatus(tool);
+    const active = tool.id === selectedId;
+    const pulse = status === 'ok' ? 'animation:pulse 2s ease-in-out infinite;' : '';
+    const dotStyle = `width:7px;height:7px;border-radius:50%;background:${dotColor(status)};flex-shrink:0;${pulse}`;
+    const name = `${tool.server}/${tool.dienst}`;
+    const interval = fmtInterval(tool.timeout_hours);
+    return `<div class="svc-item${active?' active':''}" onclick="selectTool(${tool.id})">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="${dotStyle}"></span>
+        <span style="font-family:var(--font-mono);font-size:12px;color:${active?'var(--text0)':'var(--text1)'};font-weight:${active?500:400};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>
+        ${tool.is_timeout ? '<span style="font-size:9px;background:var(--err-dim);color:var(--err);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);font-weight:600">LATE</span>' : ''}
+      </div>
+      <div style="margin-top:4px;margin-left:15px;display:flex;gap:8px">
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${fmtAge(tool.last_seen)}</span>
+        ${interval ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">· every ${interval}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── History strip ──────────────────────────────────────────────────────────────
+function renderStrip(history) {
+  const count = 60;
+  const slots = Array.from({length: count}, (_, i) => history[history.length - count + i] || null);
+  return `<div style="display:flex;gap:2px;align-items:flex-end">
+    ${slots.map(p => {
+      const s = p ? mapHistStatus(p.status) : null;
+      const bg = !p ? 'var(--border)' : s === 'ok' ? 'var(--ok)' : s === 'warn' ? 'var(--warn)' : s === 'error' ? 'var(--err)' : 'var(--text2)';
+      const title = p ? esc(`${fmtDateTime(p.reported_at)} — ${p.kommentar || p.status}`) : '—';
+      return `<div title="${title}" style="width:6px;height:18px;border-radius:2px;flex-shrink:0;background:${bg};opacity:${!p?0.3:1}"></div>`;
+    }).join('')}
+  </div>`;
+}
+
+// ── Detail panel ───────────────────────────────────────────────────────────────
+function renderDetail() {
+  const tool = tools.find(t => t.id === selectedId);
+  if (!tool) return;
+
+  document.getElementById('detail-empty').style.display = 'none';
+  const dc = document.getElementById('detail-content');
+  dc.style.display = 'flex';
+
+  const status = mapStatus(tool);
+  const history = historyCache[tool.id] || [];
+  const okCount = history.filter(p => p.status !== 'fehler').length;
+  const uptime = history.length ? (okCount / history.length * 100).toFixed(1) : null;
+  const uptimeColor = uptime >= 99 ? 'var(--ok)' : uptime >= 95 ? 'var(--warn)' : 'var(--err)';
+  const statusLabel = tool.is_timeout ? 'LATE' : tool.status.toUpperCase();
+  const statusColor = dotColor(status);
+  const dotPulse = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${statusColor};flex-shrink:0;animation:pulse 2s ease-in-out infinite`;
+  const name = `${tool.server}/${tool.dienst}`;
+
+  document.getElementById('d-header').innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <span style="${dotPulse}"></span>
+          <h2 style="font-family:var(--font-mono);font-size:18px;font-weight:600;color:var(--text0)">${esc(name)}</h2>
+          ${tool.gruppe ? `<span style="font-size:11px;color:var(--text2);background:var(--bg3);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:var(--font-mono)">${esc(tool.gruppe)}</span>` : ''}
+        </div>
+        <p style="font-size:13px;color:var(--text2);margin-left:20px">${esc(tool.kommentar || '—')}</p>
+      </div>
+      <a href="/admin/tools/${tool.id}" style="font-size:11px;color:var(--text2);font-family:var(--font-mono);text-decoration:none;padding:5px 10px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3)">Bearbeiten</a>
+    </div>
+    <div style="display:flex;gap:24px;margin-top:16px">
+      ${[
+        {label:'STATUS', val:`<span style="color:${statusColor};font-weight:600">${statusLabel}</span>`},
+        {label:'LAST PING', val:fmtAge(tool.last_seen)},
+        {label:'UPTIME', val: uptime != null ? `<span style="color:${uptimeColor};font-weight:600">${uptime}%</span>` : '—'},
+        {label:'TOTAL PINGS', val:history.length},
+      ].map(s => `<div>
+        <div style="font-size:9px;color:var(--text2);letter-spacing:0.1em;margin-bottom:3px;font-weight:600">${s.label}</div>
+        <div style="font-family:var(--font-mono);font-size:13px;color:var(--text1)">${s.val}</div>
+      </div>`).join('')}
+    </div>`;
+
+  document.getElementById('d-tabs').innerHTML = ['overview','history'].map(t =>
+    `<button class="tab-btn${t===currentTab?' active':''}" onclick="switchTab('${t}')">${t}</button>`
+  ).join('');
+
+  renderTabBody(tool, history);
+}
+
+function renderTabBody(tool, history) {
+  const body = document.getElementById('d-body');
+  const host = window.location.origin;
+
+  if (currentTab === 'overview') {
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <div>
+          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">PING HISTORY · LAST ${Math.min(history.length,60)} CHECKS</div>
+          ${renderStrip(history)}
+          <div style="display:flex;justify-content:space-between;margin-top:6px">
+            <span style="font-size:10px;color:var(--text2);font-family:var(--font-mono)">oldest</span>
+            <span style="font-size:10px;color:var(--text2);font-family:var(--font-mono)">newest</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">ENDPOINT</div>
+          <div class="code-block">
+            <div style="color:var(--text2);font-size:10px;margin-bottom:4px">GET · POST</div>
+            <code style="color:var(--blue)">${host}/watchdog?server=${esc(tool.server)}&amp;dienst=${esc(tool.dienst)}&amp;status=start</code>
+            <div style="margin-top:8px;color:var(--text2);font-size:11px">curl "${host}/watchdog?server=${esc(tool.server)}&amp;dienst=${esc(tool.dienst)}&amp;status=start"</div>
+          </div>
+        </div>
+      </div>`;
+
+  } else if (currentTab === 'history') {
+    const recent = [...history].reverse().slice(0, 20);
+    body.innerHTML = `
+      <div>
+        <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:12px">RECENT EVENTS</div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          ${recent.length === 0
+            ? '<div style="color:var(--text2);font-family:var(--font-mono);font-size:12px">Keine Einträge.</div>'
+            : recent.map((p, i) => {
+                const s = mapHistStatus(p.status);
+                const c = dotColor(s);
+                return `<div class="hist-row" style="${i%2===0?'background:var(--bg2)':''}">
+                  <span style="font-family:var(--font-mono);font-size:11px;color:var(--text2)">${fmtDateTime(p.reported_at)}</span>
+                  <div style="display:flex;align-items:center;gap:5px">
+                    <span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0;display:inline-block"></span>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:${c}">${esc(p.status)}</span>
+                  </div>
+                  <span style="font-family:var(--font-mono);font-size:11px;color:var(--text1)">${esc(p.kommentar||'—')}</span>
+                </div>`;
+              }).join('')}
+        </div>
+      </div>`;
+  }
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent === tab));
+  const tool = tools.find(t => t.id === selectedId);
+  if (tool) renderTabBody(tool, historyCache[tool.id] || []);
+}
+
+// ── Select & fetch ─────────────────────────────────────────────────────────────
+async function selectTool(id) {
+  selectedId = id;
+  currentTab = 'overview';
+  localStorage.setItem('wd-selected', id);
+  renderSidebar();
+  await fetchHistory(id);
+  renderDetail();
+}
+
+async function fetchHistory(id) {
+  try {
+    const r = await fetch(`/api/tools/${id}/history`);
+    historyCache[id] = (await r.json()).history || [];
+  } catch { historyCache[id] = []; }
+}
+
+// ── Poll ───────────────────────────────────────────────────────────────────────
+async function fetchStatus() {
+  try {
+    const data = await (await fetch('/api/status')).json();
+    tools = data.tools || [];
+    renderTopBar();
+    renderSidebar();
+    if (selectedId) { await fetchHistory(selectedId); renderDetail(); }
+  } catch(e) { console.error('Status fetch failed:', e); }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+async function init() {
+  await fetchStatus();
+  const saved = parseInt(localStorage.getItem('wd-selected'));
+  const target = (saved && tools.find(t => t.id === saved)) ? saved : (tools[0] && tools[0].id);
+  if (target) await selectTool(target);
+}
+
+init();
+setInterval(fetchStatus, 30000);
+</script>
+</body>
+</html>

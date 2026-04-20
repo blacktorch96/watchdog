@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Tools - Admin Panel{% endblock %}
+
+{% block content %}
+<h2>Tool Management</h2>
+<a href="/admin/tools/new"
+   style="padding: 0.5rem 1rem; background: #27ae60; color: white; text-decoration: none; border-radius: 4px; display: inline-block;">
+   + New Tool
+</a>
+
+<table style="width: 100%; margin-top: 1rem; background: white; border-collapse: collapse;">
+    <thead>
+        <tr style="background: #ecf0f1; border-bottom: 2px solid #bdc3c7;">
+            <th style="text-align: left; padding: 0.5rem;">Server</th>
+            <th style="text-align: left; padding: 0.5rem;">Service</th>
+            <th style="text-align: left; padding: 0.5rem;">Group</th>
+            <th style="text-align: left; padding: 0.5rem;">Status</th>
+            <th style="text-align: left; padding: 0.5rem;">Last Seen</th>
+            <th style="text-align: left; padding: 0.5rem;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% if tools %}
+            {% for tool in tools %}
+            <tr style="border-bottom: 1px solid #ecf0f1;">
+                <td style="padding: 0.5rem;">{{ tool.server }}</td>
+                <td style="padding: 0.5rem;">{{ tool.dienst }}</td>
+                <td style="padding: 0.5rem;">{{ tool.gruppe or '—' }}</td>
+                <td style="padding: 0.5rem;">
+                    <span style="background: #3498db; color: white; padding: 0.2rem 0.5rem; border-radius: 3px;">
+                        {{ tool.status }}
+                    </span>
+                </td>
+                <td style="padding: 0.5rem; font-size: 0.85rem;">
+                    {{ tool.last_seen[:10] if tool.last_seen else '—' }}
+                </td>
+                <td style="padding: 0.5rem;">
+                    <a href="/admin/tools/{{ tool.id }}" style="color: #2980b9; text-decoration: none;">Edit</a> |
+                    <a href="/admin/tools/{{ tool.id }}/history" style="color: #2980b9; text-decoration: none;">History</a> |
+                    <a href="#" onclick="deleteTool({{ tool.id }}); return false;" style="color: #e74c3c; text-decoration: none;">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+        {% else %}
+            <tr style="border-bottom: 1px solid #ecf0f1;">
+                <td colspan="6" style="padding: 1rem; text-align: center;">No tools configured.</td>
+            </tr>
+        {% endif %}
+    </tbody>
+</table>
+
+<script>
+function deleteTool(toolId) {
+    if (!confirm('Delete this tool and all its history?')) return;
+    
+    fetch(`/admin/tools/api/delete/${toolId}`, {method: 'POST'})
+        .then(r => r.json())
+        .then(() => location.reload())
+        .catch(err => alert('Error: ' + err));
+}
+</script>
+{% endblock %}

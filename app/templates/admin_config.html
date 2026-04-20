@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration - Admin Panel{% endblock %}
+
+{% block content %}
+<h2>Global Configuration</h2>
+
+<form method="post" style="background: white; padding: 1.5rem; border-radius: 8px; max-width: 600px;">
+    <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem;"><strong>SMTP Host</strong></label>
+        <input type="text" name="smtp_host" value="{{ config.smtp_host or '' }}" 
+               placeholder="mail.example.com"
+               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+    </div>
+    
+    <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem;"><strong>SMTP Port</strong></label>
+        <input type="number" name="smtp_port" value="{{ config.smtp_port }}" min="1" max="65535"
+               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+    </div>
+    
+    <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem;"><strong>Alert Emails (semicolon-separated)</strong></label>
+        <textarea name="alert_emails" 
+                  style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px; min-height: 100px;">{{ config.alert_emails or '' }}</textarea>
+    </div>
+    
+    <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem;"><strong>Check Interval (minutes)</strong></label>
+        <input type="number" name="check_interval_minutes" value="{{ config.check_interval_minutes }}" min="1"
+               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+    </div>
+    
+    <div style="margin-bottom: 1rem;">
+        <label style="display: block; margin-bottom: 0.25rem;"><strong>Monthly Grace Days</strong></label>
+        <input type="number" name="monthly_grace_days" value="{{ config.monthly_grace_days }}" min="0" max="28"
+               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+    </div>
+    
+    <div style="display: flex; gap: 0.5rem;">
+        <button type="submit" style="padding: 0.5rem 1rem; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Save Configuration
+        </button>
+        <button type="button" onclick="testEmail()" 
+                style="padding: 0.5rem 1rem; background: #f39c12; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Test Email
+        </button>
+    </div>
+</form>
+
+<script>
+async function testEmail() {
+    const resp = await fetch('/admin/config/test-email', {method: 'POST'});
+    const data = await resp.json();
+    
+    if (resp.ok) {
+        alert('Test email sent to: ' + (document.querySelector('textarea[name="alert_emails"]').value.split(';')[0] || 'N/A'));
+    } else {
+        alert('Error: ' + (data.error || 'Unknown error'));
+    }
+}
+</script>
+{% endblock %}
