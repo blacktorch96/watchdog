@@ -14,13 +14,27 @@ Usage:
 
     with client.run("cleanup"):
         do_cleanup()  # auto start/stop; reports fehler on exception
+
+    # Version check — compare this copy against the server's canonical version:
+    info = client.check_version()
+    # → {'local': '1.1.0', 'remote': '1.1.0', 'up_to_date': True}
 """
+
+__version__ = "1.1.0"
 
 import contextlib
 import datetime
 import json
 import urllib.parse
 import urllib.request
+
+
+def _parse_version(v: str) -> tuple:
+    """Parse a semver string into a comparable int tuple."""
+    try:
+        return tuple(int(x) for x in v.split('.'))
+    except Exception:
+        return (0,)
 
 
 class DependencyError(RuntimeError):
@@ -158,6 +172,35 @@ class WatchdogClient:
                 f"Prerequisite not met: '{dienst}' on '{srv}' "
                 f"did not succeed within the last {within_minutes}m ({age_str})"
             )
+
+    @property
+    def version(self) -> str:
+        """Return the version of this client module."""
+        return __version__
+
+    def check_version(self) -> dict:
+        """Check whether this client copy is up to date with the server's canonical version.
+
+        Calls GET /api/client/version on the connected server and compares against
+        the __version__ embedded in this file.
+
+        Returns:
+            Dict with keys:
+                'local':      version string of this file
+                'remote':     version string reported by the server, or None on error
+                'up_to_date': True if local >= remote, False if outdated, None if unknown
+        """
+        url = f"{self._base_url}/api/client/version"
+        try:
+            with urllib.request.urlopen(url, timeout=self._timeout) as resp:
+                body = json.loads(resp.read().decode())
+                remote = body.get("version")
+                if not remote:
+                    return {"local": __version__, "remote": None, "up_to_date": None}
+                up_to_date = _parse_version(__version__) >= _parse_version(remote)
+                return {"local": __version__, "remote": remote, "up_to_date": up_to_date}
+        except Exception:
+            return {"local": __version__, "remote": None, "up_to_date": None}
 
     @contextlib.contextmanager
     def run(

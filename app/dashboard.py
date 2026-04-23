@@ -1,6 +1,7 @@
 """Dashboard blueprint."""
 
 import os
+import re
 import tomllib
 from flask import Blueprint, render_template, jsonify, request
 from app.database import get_db, get_last_success
@@ -21,6 +22,23 @@ def _read_version() -> str:
 
 
 APP_VERSION = _read_version()
+
+
+def _read_client_version() -> str:
+    """Read __version__ from watchdog_client.py at project root."""
+    try:
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'watchdog_client.py')
+        with open(path, encoding='utf-8') as f:
+            for line in f:
+                m = re.match(r'^__version__\s*=\s*["\']([^"\']+)["\']', line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return 'unknown'
+
+
+CLIENT_VERSION = _read_client_version()
 
 
 def build_group_tree(tools):
@@ -194,6 +212,18 @@ def last_success_api():
     if result is None:
         return jsonify({"error": "No successful run recorded"}), 404
     return jsonify(result), 200
+
+
+@dashboard_bp.route('/api/client/version')
+def client_version_api():
+    """Return the canonical version of watchdog_client.py shipped with this server.
+
+    Clients call this to check whether their local copy is up to date.
+
+    Returns:
+        200 {'version': str}
+    """
+    return jsonify({"version": CLIENT_VERSION}), 200
 
 
 @dashboard_bp.route('/api/tools/<int:tool_id>/timeline')
