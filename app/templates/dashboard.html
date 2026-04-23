@@ -118,6 +118,7 @@ let tools = [];
 let selectedId = null;
 let currentTab = 'overview';
 let historyCache = {};
+let timelineCache = {};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function mapStatus(tool) {
@@ -232,17 +233,27 @@ function renderSidebar() {
   document.getElementById('svc-list').innerHTML = html;
 }
 
-// ── History strip ──────────────────────────────────────────────────────────────
-function renderStrip(history) {
-  const count = 60;
-  const slots = Array.from({length: count}, (_, i) => history[history.length - count + i] || null);
-  return `<div style="display:flex;gap:2px;align-items:flex-end">
-    ${slots.map(p => {
-      const s = p ? mapHistStatus(p.status) : null;
-      const bg = !p ? 'var(--border)' : s === 'ok' ? 'var(--ok)' : s === 'warn' ? 'var(--warn)' : s === 'error' ? 'var(--err)' : 'var(--text2)';
-      const title = p ? esc(`${fmtDateTime(p.reported_at)} — ${p.kommentar || p.status}`) : '—';
-      return `<div title="${title}" style="width:6px;height:18px;border-radius:2px;flex-shrink:0;background:${bg};opacity:${!p?0.3:1}"></div>`;
-    }).join('')}
+// ── 24h Timeline strip ─────────────────────────────────────────────────────────
+function renderTimeline(slots) {
+  if (!slots.length) return '<div style="color:var(--text2);font-family:var(--font-mono);font-size:11px">Keine Daten.</div>';
+  const bars = slots.map(slot => {
+    const bg = slot.status === 'ok'    ? 'var(--ok)'
+             : slot.status === 'error' ? 'var(--err)'
+             : slot.status === 'warn'  ? 'var(--warn)'
+             : 'var(--border)';
+    const opacity = slot.status === null ? 0.35 : 1;
+    const label = slot.status || 'keine Aktivität';
+    const title = esc(`${fmtDateTime(slot.start)} — ${label}`);
+    return `<div title="${title}" style="flex:1;min-width:2px;height:20px;border-radius:1px;background:${bg};opacity:${opacity}"></div>`;
+  }).join('');
+  // Time axis: 5 labels evenly spaced (24h ago → now)
+  const labels = ['24h', '18h', '12h', '6h', 'jetzt'];
+  const axis = labels.map(l =>
+    `<span style="font-size:9px;color:var(--text2);font-family:var(--font-mono)">${l}</span>`
+  ).join('');
+  return `<div>
+    <div style="display:flex;gap:1px;align-items:stretch">${bars}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">${axis}</div>
   </div>`;
 }
 
@@ -312,12 +323,8 @@ function renderTabBody(tool, history) {
     body.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:24px">
         <div>
-          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">PING HISTORY · LAST ${Math.min(history.length,60)} CHECKS</div>
-          ${renderStrip(history)}
-          <div style="display:flex;justify-content:space-between;margin-top:6px">
-            <span style="font-size:10px;color:var(--text2);font-family:var(--font-mono)">oldest</span>
-            <span style="font-size:10px;color:var(--text2);font-family:var(--font-mono)">newest</span>
-          </div>
+          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">PING HISTORY · LETZTE 24H · 10 MIN SLOTS</div>
+          ${renderTimeline(timelineCache[tool.id] || [])}
         </div>
         <div>
           <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:8px">ENDPOINT</div>
@@ -378,7 +385,7 @@ async function selectTool(id) {
   currentTab = 'overview';
   localStorage.setItem('wd-selected', id);
   renderSidebar();
-  await fetchHistory(id);
+  await Promise.all([fetchHistory(id), fetchTimeline(id)]);
   renderDetail();
 }
 
@@ -389,6 +396,13 @@ async function fetchHistory(id) {
   } catch { historyCache[id] = []; }
 }
 
+async function fetchTimeline(id) {
+  try {
+    const r = await fetch(`/api/tools/${id}/timeline`);
+    timelineCache[id] = (await r.json()).slots || [];
+  } catch { timelineCache[id] = []; }
+}
+
 // ── Poll ───────────────────────────────────────────────────────────────────────
 async function fetchStatus() {
   try {
@@ -396,7 +410,7 @@ async function fetchStatus() {
     tools = data.tools || [];
     renderTopBar();
     renderSidebar();
-    if (selectedId) { await fetchHistory(selectedId); renderDetail(); }
+    if (selectedId) { await Promise.all([fetchHistory(selectedId), fetchTimeline(selectedId)]); renderDetail(); }
   } catch(e) { console.error('Status fetch failed:', e); }
 }
 

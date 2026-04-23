@@ -196,6 +196,53 @@ def last_success_api():
     return jsonify(result), 200
 
 
+@dashboard_bp.route('/api/tools/<int:tool_id>/timeline')
+def tool_timeline_api(tool_id: int):
+    """Return a 24h bucketed timeline for a tool.
+
+    Query params:
+        slot_minutes: Slot width in minutes (default 10).
+        hours:        Window in hours (default 24).
+
+    Returns:
+        JSON with slots array; each slot has 'start' (ISO) and
+        'status' (ok | error | warn | null).
+    """
+    slot_minutes = max(1, int(request.args.get('slot_minutes', 10)))
+    hours = max(1, int(request.args.get('hours', 24)))
+    num_slots = (hours * 60) // slot_minutes
+
+    now = datetime.utcnow()
+    since = now - timedelta(hours=hours)
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        """SELECT status, reported_at FROM history
+           WHERE tool_id = ? AND reported_at >= ?
+           ORDER BY reported_at ASC""",
+        (tool_id, since.strftime('%Y-%m-%d %H:%M:%S')),
+    )
+    entries = cursor.fetchall()
+
+    priority = {'error': 3, 'ok': 2, 'warn': 1}
+    slots = [
+        {'start': (since + timedelta(minutes=i * slot_minutes)).isoformat(), 'status': None}
+        for i in range(num_slots)
+    ]
+    for entry in entries:
+        dt = datetime.fromisoformat(entry['reported_at'])
+        idx = int((dt - since).total_seconds() // (slot_minutes * 60))
+        if 0 <= idx < num_slots:
+            mapped = ('error' if entry['status'] == 'fehler' else
+                      'ok' if entry['status'] in ('stop', 'start') else 'warn')
+            current = slots[idx]['status']
+            if current is None or priority[mapped] > priority.get(current, 0):
+                slots[idx]['status'] = mapped
+
+    return jsonify({'slots': slots, 'slot_minutes': slot_minutes, 'hours': hours})
+
+
 def tree_to_json(node, level=0):
     """Convert tree structure to JSON-friendly format.
     
