@@ -1,75 +1,82 @@
 {% extends "base.html" %}
-
-{% block title %}History - Admin Panel{% endblock %}
+{% block title %}History {{ tool.server }}/{{ tool.dienst }} — Watchdog Admin{% endblock %}
+{% block subnav %}admin / {{ tool.server }}/{{ tool.dienst }} / history{% endblock %}
 
 {% block content %}
-<h2>History: {{ tool.name }}</h2>
-<a href="/admin/tools" style="color: #2980b9; text-decoration: none;">← Back to Tools</a>
+<a href="/admin/tools" class="wd-back">← Tools</a>
 
-<table style="width: 100%; margin-top: 1rem; background: white; border-collapse: collapse;">
-    <thead>
-        <tr style="background: #ecf0f1; border-bottom: 2px solid #bdc3c7;">
-            <th style="text-align: left; padding: 0.5rem;">Reported</th>
-            <th style="text-align: left; padding: 0.5rem;">Status</th>
-            <th style="text-align: left; padding: 0.5rem;">Comment</th>
-            <th style="text-align: left; padding: 0.5rem;">PID</th>
-            <th style="text-align: left; padding: 0.5rem;">Manually Resolved</th>
-            <th style="text-align: left; padding: 0.5rem;">Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% if history %}
-            {% for entry in history %}
-            <tr style="border-bottom: 1px solid #ecf0f1;">
-                <td style="padding: 0.5rem; font-size: 0.85rem;">
-                    {% if entry.reported_at %}
-                        {{ entry.reported_at[:16].replace('T', ' ') }}
-                    {% else %}
-                        —
-                    {% endif %}
-                </td>
-                <td style="padding: 0.5rem;">
-                    <span style="background: #3498db; color: white; padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.85rem;">
-                        {{ entry.status }}
-                    </span>
-                </td>
-                <td style="padding: 0.5rem; font-size: 0.85rem;">
-                    {{ entry.kommentar or '—' }}
-                </td>
-                <td style="padding: 0.5rem; font-size: 0.85rem;">
-                    {{ entry.pid or '—' }}
-                </td>
-                <td style="padding: 0.5rem;">
-                    {% if entry.manually_resolved %}
-                    <span style="color: #27ae60; font-weight: bold;">✓</span>
-                    {% else %}
-                    —
-                    {% endif %}
-                </td>
-                <td style="padding: 0.5rem;">
-                    {% if not entry.manually_resolved %}
-                    <button onclick="resolveEntry({{ tool.id }}, {{ entry.id }})" 
-                            style="background: #27ae60; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 3px; cursor: pointer;">
-                        Mark OK
-                    </button>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        {% else %}
-            <tr style="border-bottom: 1px solid #ecf0f1;">
-                <td colspan="6" style="padding: 1rem; text-align: center;">No history entries.</td>
-            </tr>
-        {% endif %}
-    </tbody>
+<div class="page-header">
+  <span class="page-title">History — {{ tool.server }}/{{ tool.dienst }}</span>
+</div>
+
+<table class="wd-table">
+  <thead>
+    <tr>
+      <th>Zeitpunkt</th>
+      <th>Status</th>
+      <th>Kommentar</th>
+      <th>PID</th>
+      <th>Manuell OK</th>
+      <th>Aktion</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% if history %}
+      {% for entry in history %}
+      {% set s = entry.status %}
+      {% if s == 'start' %}
+        {% set badge_bg = 'var(--ok-dim)' %}{% set badge_col = 'var(--ok)' %}
+      {% elif s == 'stop' %}
+        {% set badge_bg = 'var(--bg3)' %}{% set badge_col = 'var(--text2)' %}
+      {% elif s == 'fehler' %}
+        {% set badge_bg = 'var(--err-dim)' %}{% set badge_col = 'var(--err)' %}
+      {% elif s == 'update' %}
+        {% set badge_bg = 'var(--warn-dim)' %}{% set badge_col = 'var(--warn)' %}
+      {% else %}
+        {% set badge_bg = 'var(--bg3)' %}{% set badge_col = 'var(--text2)' %}
+      {% endif %}
+      <tr>
+        <td style="color:var(--text2);white-space:nowrap">
+          {{ entry.reported_at[:16] if entry.reported_at else '—' }}
+        </td>
+        <td>
+          <span class="wd-badge" style="background:{{ badge_bg }};color:{{ badge_col }}">{{ s }}</span>
+        </td>
+        <td style="color:var(--text1);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          {{ entry.kommentar or '—' }}
+        </td>
+        <td style="color:var(--text2)">{{ entry.pid or '—' }}</td>
+        <td style="text-align:center">
+          {% if entry.manually_resolved %}
+            <span style="color:var(--ok);font-size:13px">✓</span>
+          {% else %}
+            <span style="color:var(--border2)">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if not entry.manually_resolved %}
+          <button onclick="resolveEntry({{ tool.id }}, {{ entry.id }})"
+                  class="wd-btn wd-btn-ok" style="padding:3px 10px;font-size:11px">
+            Mark OK
+          </button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr>
+        <td colspan="6" style="text-align:center;color:var(--text2);padding:24px">Keine Einträge.</td>
+      </tr>
+    {% endif %}
+  </tbody>
 </table>
 
 <script>
 function resolveEntry(toolId, histId) {
-    fetch(`/admin/tools/${toolId}/history/${histId}/resolve`, {method: 'POST'})
-        .then(r => r.json())
-        .then(() => location.reload())
-        .catch(err => alert('Error: ' + err));
+  fetch(`/admin/tools/${toolId}/history/${histId}/resolve`, {method: 'POST'})
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(err => alert('Error: ' + err));
 }
 </script>
 {% endblock %}

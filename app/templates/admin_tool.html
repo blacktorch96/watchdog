@@ -1,103 +1,88 @@
 {% extends "base.html" %}
-
-{% block title %}{% if tool.id %}Edit Tool{% else %}New Tool{% endif %} - Admin Panel{% endblock %}
+{% block title %}{% if tool.id %}Edit Tool{% else %}New Tool{% endif %} — Watchdog Admin{% endblock %}
+{% block subnav %}admin / {% if tool.id %}{{ tool.server }}/{{ tool.dienst }}{% else %}new tool{% endif %}{% endblock %}
 
 {% block content %}
-<h2>{% if tool.id %}Edit Tool: {{ tool.server }} / {{ tool.dienst }}{% else %}New Tool{% endif %}</h2>
+<a href="/admin/tools" class="wd-back">← Tools</a>
+
+<div class="page-header">
+  <span class="page-title">{% if tool.id %}{{ tool.server }} / {{ tool.dienst }}{% else %}New Tool{% endif %}</span>
+</div>
 
 {% if tool.id %}
-{# Edit mode: submit via JS to JSON API #}
-<form id="toolForm" style="background: white; padding: 1.5rem; border-radius: 8px; max-width: 600px;">
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Server</strong></label>
-        <input type="text" value="{{ tool.server }}" disabled
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px; background: #ecf0f1;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Service</strong></label>
-        <input type="text" value="{{ tool.dienst }}" disabled
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px; background: #ecf0f1;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Gruppe (z.B. Backup/Daily)</strong></label>
-        <input type="text" name="gruppe" value="{{ tool.gruppe or '' }}"
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Timeout Stunden</strong></label>
-        <input type="number" name="timeout_hours" value="{{ tool.timeout_hours or 24 }}" min="1"
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Monatlicher Lauftag (1–28, leer = Standard-Timeout)</strong></label>
-        <input type="number" name="monthly_day" value="{{ tool.monthly_day or '' }}" min="1" max="28"
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="display: flex; gap: 0.5rem;">
-        <button type="submit" style="padding: 0.5rem 1rem; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            Speichern
-        </button>
-        <a href="/admin/tools" style="padding: 0.5rem 1rem; background: #95a5a6; color: white; text-decoration: none; border-radius: 4px; display: inline-block;">
-            Abbrechen
-        </a>
-    </div>
+{# Edit mode: AJAX submit #}
+<form id="toolForm" class="wd-card">
+  <div class="wd-field">
+    <label class="wd-label">Server</label>
+    <input class="wd-input" type="text" value="{{ tool.server }}" disabled>
+  </div>
+  <div class="wd-field">
+    <label class="wd-label">Service</label>
+    <input class="wd-input" type="text" value="{{ tool.dienst }}" disabled>
+  </div>
+  <div class="wd-field">
+    <label class="wd-label">Gruppe (z.B. Backup/Daily)</label>
+    <input class="wd-input" type="text" name="gruppe" value="{{ tool.gruppe or '' }}">
+  </div>
+  <div class="wd-field">
+    <label class="wd-label">Timeout Stunden</label>
+    <input class="wd-input" type="number" name="timeout_hours" value="{{ tool.timeout_hours or 24 }}" min="1">
+  </div>
+  <div class="wd-field" style="margin-bottom:24px">
+    <label class="wd-label">Monatlicher Lauftag (1–28, leer = Standard-Timeout)</label>
+    <input class="wd-input" type="number" name="monthly_day" value="{{ tool.monthly_day or '' }}" min="1" max="28">
+  </div>
+  <div style="display:flex;gap:8px">
+    <button type="submit" class="wd-btn wd-btn-primary">Speichern</button>
+    <a href="/admin/tools" class="wd-btn wd-btn-ghost">Abbrechen</a>
+  </div>
 </form>
 <script>
 document.getElementById('toolForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const data = {
-        gruppe: document.querySelector('input[name="gruppe"]').value,
-        timeout_hours: parseInt(document.querySelector('input[name="timeout_hours"]').value),
-        monthly_day: document.querySelector('input[name="monthly_day"]').value
-                     ? parseInt(document.querySelector('input[name="monthly_day"]').value) : null
-    };
-    const resp = await fetch(`/admin/tools/api/update/{{ tool.id }}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    });
-    if (resp.ok) { location.href = '/admin/tools'; }
-    else { alert('Fehler beim Speichern'); }
+  e.preventDefault();
+  const data = {
+    gruppe:       document.querySelector('input[name="gruppe"]').value,
+    timeout_hours: parseInt(document.querySelector('input[name="timeout_hours"]').value),
+    monthly_day:  document.querySelector('input[name="monthly_day"]').value
+                  ? parseInt(document.querySelector('input[name="monthly_day"]').value) : null
+  };
+  const resp = await fetch(`/admin/tools/api/update/{{ tool.id }}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  if (resp.ok) { location.href = '/admin/tools'; }
+  else { alert('Fehler beim Speichern'); }
 });
 </script>
 
 {% else %}
-{# Create mode: normal HTML form POST #}
-<form method="post" action="/admin/tools/new"
-      style="background: white; padding: 1.5rem; border-radius: 8px; max-width: 600px;">
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Server</strong></label>
-        <input type="text" name="server" required
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Service (Dienstname)</strong></label>
-        <input type="text" name="dienst" required
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Gruppe (z.B. Backup/Daily)</strong></label>
-        <input type="text" name="gruppe"
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Timeout Stunden</strong></label>
-        <input type="number" name="timeout_hours" value="24" min="1"
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="margin-bottom: 1rem;">
-        <label style="display: block; margin-bottom: 0.25rem;"><strong>Monatlicher Lauftag (1–28, optional)</strong></label>
-        <input type="number" name="monthly_day" min="1" max="28"
-               style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
-    </div>
-    <div style="display: flex; gap: 0.5rem;">
-        <button type="submit" style="padding: 0.5rem 1rem; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            Anlegen
-        </button>
-        <a href="/admin/tools" style="padding: 0.5rem 1rem; background: #95a5a6; color: white; text-decoration: none; border-radius: 4px; display: inline-block;">
-            Abbrechen
-        </a>
-    </div>
+{# Create mode: normal POST #}
+<form method="post" action="/admin/tools/new" class="wd-card">
+  <div class="wd-field">
+    <label class="wd-label">Server</label>
+    <input class="wd-input" type="text" name="server" required>
+  </div>
+  <div class="wd-field">
+    <label class="wd-label">Service (Dienstname)</label>
+    <input class="wd-input" type="text" name="dienst" required>
+  </div>
+  <div class="wd-field">
+    <label class="wd-label">Gruppe (z.B. Backup/Daily)</label>
+    <input class="wd-input" type="text" name="gruppe">
+  </div>
+  <div class="wd-field">
+    <label class="wd-label">Timeout Stunden</label>
+    <input class="wd-input" type="number" name="timeout_hours" value="24" min="1">
+  </div>
+  <div class="wd-field" style="margin-bottom:24px">
+    <label class="wd-label">Monatlicher Lauftag (1–28, optional)</label>
+    <input class="wd-input" type="number" name="monthly_day" min="1" max="28">
+  </div>
+  <div style="display:flex;gap:8px">
+    <button type="submit" class="wd-btn wd-btn-primary">Anlegen</button>
+    <a href="/admin/tools" class="wd-btn wd-btn-ghost">Abbrechen</a>
+  </div>
 </form>
 {% endif %}
 {% endblock %}

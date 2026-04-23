@@ -1,35 +1,112 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Watchdog - Status Dashboard{% endblock %}</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }
-        header { background: #2c3e50; color: white; padding: 1rem; }
-        nav { display: flex; gap: 1rem; }
-        nav a { color: white; text-decoration: none; padding: 0.5rem 1rem; }
-        nav a:hover { background: #34495e; border-radius: 4px; }
-        main { padding: 2rem; }
-        .container { max-width: 1200px; margin: 0 auto; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Watchdog{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg0: #0d0f12; --bg1: #131619; --bg2: #191d21; --bg3: #1f2429;
+    --border: #2a2f36; --border2: #343b44;
+    --text0: #e8ecf0; --text1: #a0aab4; --text2: #606b76;
+    --ok: #22c55e;   --ok-dim:   rgba(34,197,94,0.12);
+    --warn: #f59e0b; --warn-dim: rgba(245,158,11,0.12);
+    --err: #ef4444;  --err-dim:  rgba(239,68,68,0.12);
+    --blue: #3b82f6; --blue-dim: rgba(59,130,246,0.12);
+    --font-ui:   'IBM Plex Sans', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html, body { min-height: 100%; background: var(--bg0); color: var(--text0); font-family: var(--font-ui); }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── Topbar ── */
+  #topbar {
+    height: 48px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--bg1);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .topbar-logo { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--text0); text-decoration: none; letter-spacing: -0.02em; }
+  .topbar-sep  { width: 1px; height: 16px; background: var(--border); display: inline-block; }
+  .topbar-sub  { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+  .nav-link    { font-size: 11px; color: var(--text2); font-family: var(--font-mono); text-decoration: none; padding: 4px 10px; border-radius: 4px; transition: color 0.15s; }
+  .nav-link:hover  { color: var(--text0); }
+  .nav-link.active { color: var(--text0); background: var(--bg3); }
+
+  /* ── Layout ── */
+  #main { padding: 32px 40px; }
+
+  /* ── Typography ── */
+  .page-title { font-size: 16px; font-weight: 600; color: var(--text0); font-family: var(--font-mono); }
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+
+  /* ── Table ── */
+  .wd-table { width: 100%; border-collapse: collapse; }
+  .wd-table thead th {
+    text-align: left; padding: 8px 12px;
+    font-size: 9px; letter-spacing: 0.1em; font-weight: 600;
+    color: var(--text2); border-bottom: 1px solid var(--border2);
+    font-family: var(--font-ui); text-transform: uppercase;
+  }
+  .wd-table tbody td { padding: 10px 12px; font-size: 12px; color: var(--text1); border-bottom: 1px solid var(--border); font-family: var(--font-mono); vertical-align: middle; }
+  .wd-table tbody tr:hover td { background: var(--bg2); }
+
+  /* ── Form ── */
+  .wd-card  { background: var(--bg1); border: 1px solid var(--border); border-radius: 8px; padding: 24px; max-width: 620px; }
+  .wd-field { margin-bottom: 16px; }
+  .wd-label { display: block; font-size: 10px; font-weight: 600; color: var(--text2); letter-spacing: 0.08em; margin-bottom: 5px; text-transform: uppercase; }
+  .wd-input {
+    background: var(--bg2); border: 1px solid var(--border2); border-radius: 5px;
+    padding: 8px 10px; color: var(--text0); font-family: var(--font-mono);
+    font-size: 13px; outline: none; width: 100%; transition: border-color 0.15s;
+  }
+  .wd-input:focus   { border-color: var(--blue); }
+  .wd-input:disabled { opacity: 0.45; cursor: not-allowed; }
+  textarea.wd-input  { min-height: 90px; resize: vertical; }
+
+  /* ── Buttons ── */
+  .wd-btn { padding: 7px 14px; border: none; border-radius: 5px; font-size: 12px; font-family: var(--font-ui); font-weight: 500; cursor: pointer; transition: opacity 0.15s; text-decoration: none; display: inline-block; line-height: 1.4; }
+  .wd-btn:hover { opacity: 0.82; }
+  .wd-btn-primary { background: var(--blue); color: #fff; }
+  .wd-btn-ok      { background: rgba(34,197,94,0.18); color: var(--ok); border: 1px solid rgba(34,197,94,0.3); }
+  .wd-btn-warn    { background: rgba(245,158,11,0.18); color: var(--warn); border: 1px solid rgba(245,158,11,0.3); }
+  .wd-btn-danger  { background: rgba(239,68,68,0.15); color: var(--err); border: 1px solid rgba(239,68,68,0.3); }
+  .wd-btn-ghost   { background: var(--bg3); color: var(--text1); border: 1px solid var(--border2); }
+
+  /* ── Badge ── */
+  .wd-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; }
+
+  /* ── Back link ── */
+  .wd-back { font-size: 11px; color: var(--text2); text-decoration: none; font-family: var(--font-mono); display: inline-block; margin-bottom: 18px; transition: color 0.15s; }
+  .wd-back:hover { color: var(--text1); }
+</style>
+{% block extra_head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <div class="container">
-            <h1>Watchdog Service Monitor</h1>
-            <nav>
-                <a href="/">Dashboard</a>
-                <a href="/admin/tools">Admin Tools</a>
-                <a href="/admin/config">Config</a>
-            </nav>
-        </div>
-    </header>
-    <main>
-        <div class="container">
-            {% block content %}{% endblock %}
-        </div>
-    </main>
+
+<div id="topbar">
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/" class="topbar-logo"><span style="color:var(--ok)">●</span> watchdog</a>
+    <span class="topbar-sep"></span>
+    <span class="topbar-sub">{% block subnav %}admin{% endblock %}</span>
+  </div>
+  <nav style="display:flex;align-items:center;gap:2px">
+    <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Dashboard</a>
+    <a href="/admin/tools" class="nav-link {% if request.path.startswith('/admin/tools') %}active{% endif %}">Tools</a>
+    <a href="/admin/config" class="nav-link {% if request.path.startswith('/admin/config') %}active{% endif %}">Config</a>
+  </nav>
+</div>
+
+<div id="main">
+  {% block content %}{% endblock %}
+</div>
+
 </body>
 </html>
