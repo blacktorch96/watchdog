@@ -40,12 +40,12 @@ uv sync
 uv run python wsgi.py
 ```
 
-Öffne <http://localhost:5000> für das Dashboard.
+Öffne <http://localhost:5050> für das Dashboard.
 
 ### Starten (Produktion hinter nginx)
 
 ```bash
-uv run gunicorn wsgi:app -w 2 -b 127.0.0.1:8000
+uv run gunicorn wsgi:app -w 2 -b 127.0.0.1:5050
 ```
 
 Nginx-Beispielkonfiguration:
@@ -56,12 +56,85 @@ server {
     server_name watchdog.example.com;
 
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:5050;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
+
+---
+
+## Python-Client (`watchdog_client.py`)
+
+Für Python-Projekte gibt es ein fertiges Client-Modul ohne externe Abhängigkeiten.
+
+### Datei herunterladen
+
+```bash
+# Direkt vom Watchdog-Server (immer die aktuelle Version)
+curl -O http://watchdog.example.com/download/watchdog_client.py
+```
+
+Alternativ unter `/client` im Browser herunterladen — dort gibt es auch die vollständige API-Referenz.
+
+### Konfiguration per `.env`
+
+```ini
+# .env
+WATCHDOG_URL=http://watchdog.example.com
+WATCHDOG_SERVER=mein-server
+```
+
+Die Variablen werden mit [python-dotenv](https://pypi.org/project/python-dotenv/) geladen.
+Alternativ können sie auch als Systemumgebungsvariablen, per Docker oder systemd gesetzt werden.
+
+### Verwendung
+
+```python
+from dotenv import load_dotenv
+from watchdog_client import WatchdogClient, DependencyError
+
+load_dotenv()
+client = WatchdogClient()  # liest WATCHDOG_URL + WATCHDOG_SERVER aus der Umgebung
+
+# Explizit (ohne .env)
+# client = WatchdogClient("http://watchdog.example.com", server="web01")
+
+# Einfache Meldungen
+client.start("backup")
+client.stop("backup", kommentar="12 GB in 4m")
+client.error("backup", kommentar="Verbindung fehlgeschlagen")
+
+# Context Manager (auto start/stop, meldet fehler bei Exception)
+with client.run("cleanup"):
+    do_cleanup()
+
+# Abhängigkeit prüfen: Dienst A muss innerhalb der letzten 60 min gelaufen sein
+try:
+    client.require_success("backup", within_minutes=60)
+    # ... Dienst B Logik ...
+except DependencyError as e:
+    print(f"Voraussetzung nicht erfüllt: {e}")
+
+# Letzten erfolgreichen Lauf abfragen
+dt = client.last_success("backup")  # datetime | None
+
+# Version prüfen
+info = client.check_version()
+# → {'local': '1.2.0', 'remote': '1.2.0', 'up_to_date': True}
+```
+
+### Methoden-Übersicht
+
+| Methode | Beschreibung |
+|---|---|
+| `report(dienst, status, gruppe, kommentar, pid)` | Status melden (start / stop / fehler / update) |
+| `start(dienst)` / `stop(dienst)` / `error(dienst)` / `update(dienst)` | Shortcuts für `report()` |
+| `run(dienst)` | Context Manager: start → stop, bei Exception → fehler + re-raise |
+| `last_success(dienst, server=None)` | Letzten erfolgreichen Lauf als `datetime` abfragen |
+| `require_success(dienst, within_minutes, server=None)` | Wirft `DependencyError` wenn Dienst nicht rechtzeitig lief |
+| `check_version()` | Vergleicht lokale Version mit der des Servers |
 
 ---
 
@@ -93,9 +166,44 @@ POST /watchdog
 
 Ein unbekanntes Tool wird beim ersten Aufruf automatisch angelegt.
 
+### Letzten Erfolg abfragen
+
+```
+GET /api/tools/last-success?server=<server>&dienst=<dienst>
+```
+
+Gibt den letzten Eintrag mit `status=stop` für das angegebene Tool zurück.
+
+| HTTP-Code | Bedeutung |
+|---|---|
+| `200` | `{"reported_at": "2024-01-15 08:30:00", "kommentar": "..."}` |
+| `400` | Fehlende Parameter |
+| `404` | Kein erfolgreicher Lauf vorhanden |
+
+### Client-Version abfragen
+
+```
+GET /api/client/version
+```
+
+Gibt die kanonische Version der `watchdog_client.py` zurück, die auf dem Server liegt.
+Wird von `WatchdogClient.check_version()` intern verwendet.
+
+```json
+{ "version": "1.2.0" }
+```
+
+### Client herunterladen
+
+```
+GET /download/watchdog_client.py
+```
+
+Liefert die aktuelle `watchdog_client.py` als Datei-Download.
+
 ---
 
-## Beispielaufrufe
+## Beispielaufrufe ohne Python-Client
 
 ### curl (bash / Linux / macOS)
 
@@ -133,29 +241,6 @@ Invoke-RestMethod "http://watchdog.example.com/watchdog?server=$env:COMPUTERNAME
 Invoke-RestMethod "http://watchdog.example.com/watchdog?server=$env:COMPUTERNAME&dienst=myjob&status=stop"
 ```
 
-### Python (Stdlib, kein requests nötig)
-
-```python
-import urllib.request, urllib.parse, socket
-
-BASE = "http://watchdog.example.com/watchdog"
-
-def ping(status: str, kommentar: str = "", pid: str = ""):
-    params = urllib.parse.urlencode({
-        "server":    socket.gethostname(),
-        "dienst":   "myjob",
-        "status":   status,
-        "kommentar": kommentar,
-        "pid":       pid,
-    })
-    urllib.request.urlopen(f"{BASE}?{params}", timeout=5)
-
-# Verwendung
-ping("start", "Job gestartet")
-# ... Job-Logik ...
-ping("stop", "Fertig")
-```
-
 ---
 
 ## Dashboard
@@ -164,10 +249,13 @@ Aufrufbar unter `/` – industrielles Dark-UI mit Sidebar und Detailpanel:
 
 | Element | Beschreibung |
 |---|---|
-| **Sidebar** | Liste aller Services mit Status-Dot (pulsierend bei OK), Alter des letzten Pings, Intervall und **LATE**-Badge bei Timeout |
-| **Overview-Tab** | Ping-History-Strip (60 Slots farbcodiert), Endpoint-URL mit kopierbaren Code-Snippets (curl, PowerShell, Python) |
-| **History-Tab** | Chronologische Ereignisliste der letzten 20 Meldungen |
-| **Statusleiste** | Uhrzeit + Versionsnummer unten links in der Sidebar |
+| **Sidebar** | Liste aller Services gruppiert nach `gruppe`; **OVERDUE**-Sektion ganz oben für überfällige Services (roter Hintergrund) |
+| **Status-Dot** | Pulsierend grün bei `start`, grau bei `stop`, rot bei Timeout/Fehler |
+| **Detailpanel** | Alert-Banner bei Timeout, 24h-Tageszeitlinie (00:00–24:00), chronologische History |
+| **24h-Zeitlinie** | Balken à 10 Minuten; gelbe Linie zeigt aktuelle Uhrzeit; links davon = heute, rechts = gestern |
+| **Statusleiste** | Uhrzeit + Versionsnummer unten links; DOWN-Zähler pulsiert rot bei ausgefallenen Services |
+
+Das Dashboard aktualisiert sich automatisch alle 30 Sekunden.
 
 **Status-Farbcodierung:**
 
@@ -177,8 +265,6 @@ Aufrufbar unter `/` – industrielles Dark-UI mit Sidebar und Detailpanel:
 | Grau | `stop` – Tool beendet |
 | Amber | `update` – Info-Meldung |
 | Rot | `fehler` oder Timeout überschritten |
-
-Das Dashboard aktualisiert sich automatisch alle 30 Sekunden.
 
 ---
 
@@ -191,6 +277,7 @@ Das Dashboard aktualisiert sich automatisch alle 30 Sekunden.
 | `/admin/tools/<id>` | Gruppe, Timeout-Stunden, monatlichen Lauftag bearbeiten |
 | `/admin/tools/<id>/history` | Meldungshistorie einsehen, Einträge manuell als „OK" markieren |
 | `/admin/config` | SMTP-Host/Port, Alert-Empfänger, Check-Intervall, Toleranztage |
+| `/client` | Python-Client-Infoseite mit Download-Button |
 
 ---
 
@@ -222,5 +309,7 @@ Der `instance/`-Ordner ist in `.gitignore` ausgeschlossen.
 
 ## Versionierung
 
-Die Version wird zur Laufzeit aus `pyproject.toml` gelesen und im Dashboard (Sidebar, unten links) angezeigt.
-Nach jeder abgeschlossenen Phase oder Feature-Umsetzung das `version`-Feld in `pyproject.toml` erhöhen.
+Die App-Version wird zur Laufzeit aus `pyproject.toml` gelesen und im Dashboard (Sidebar, unten links) angezeigt.
+Die Client-Version (`watchdog_client.py`) ist als `__version__` direkt in der Datei vermerkt und über `/api/client/version` abrufbar.
+
+Nach jeder abgeschlossenen Phase oder Feature-Umsetzung das `version`-Feld in `pyproject.toml` und `__version__` in `watchdog_client.py` erhöhen.
