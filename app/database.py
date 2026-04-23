@@ -150,6 +150,33 @@ def add_history(tool_id: int, server: str, status: str, kommentar: str = "",
     return cursor.lastrowid
 
 
+def get_last_success(server: str, dienst: str) -> dict | None:
+    """Return the most recent successful run for a (server, dienst) pair.
+
+    "Successful" = last history entry with status='stop'.
+
+    Returns:
+        Dict {'reported_at': str, 'kommentar': str|None}, or None if not found.
+    """
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        SELECT h.reported_at, h.kommentar
+        FROM history h
+        JOIN tools t ON h.tool_id = t.id
+        WHERE t.server = ? AND t.dienst = ? AND h.status = 'stop'
+        ORDER BY h.reported_at DESC
+        LIMIT 1
+        """,
+        (server, dienst),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return {"reported_at": row[0], "kommentar": row[1]}
+
+
 def get_config(key: str, default: str = "") -> str:
     """Get configuration value.
     

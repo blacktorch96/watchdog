@@ -2,8 +2,8 @@
 
 import os
 import tomllib
-from flask import Blueprint, render_template, jsonify
-from app.database import get_db
+from flask import Blueprint, render_template, jsonify, request
+from app.database import get_db, get_last_success
 from datetime import datetime, timedelta
 
 
@@ -171,6 +171,29 @@ def tool_history_api(tool_id):
     """, (tool_id,))
     history = [dict(row) for row in cursor.fetchall()]
     return jsonify({'history': history})
+
+
+@dashboard_bp.route('/api/tools/last-success')
+def last_success_api():
+    """Return the most recent successful run for a (server, dienst) pair.
+
+    Query params:
+        server: Server name (required)
+        dienst: Service name (required)
+
+    Returns:
+        200 {'reported_at': str, 'kommentar': str|null}
+        400 {'error': 'Missing required parameters'}
+        404 {'error': 'No successful run recorded'}
+    """
+    server = request.args.get('server', '').strip()
+    dienst = request.args.get('dienst', '').strip()
+    if not server or not dienst:
+        return jsonify({"error": "Missing required parameters"}), 400
+    result = get_last_success(server, dienst)
+    if result is None:
+        return jsonify({"error": "No successful run recorded"}), 404
+    return jsonify(result), 200
 
 
 def tree_to_json(node, level=0):
