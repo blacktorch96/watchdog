@@ -89,7 +89,6 @@
 
     <!-- Sidebar -->
     <div id="sidebar">
-      <div style="padding:10px 14px 6px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>
       <div id="svc-list"></div>
       <div style="flex:1"></div>
       <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -180,33 +179,57 @@ function renderTopBar() {
     {label:'OK',   count:nOk,   color:'var(--ok)'},
     {label:'WARN', count:nWarn, color:'var(--warn)'},
     {label:'DOWN', count:nErr,  color:'var(--err)'},
-  ].map(s => `<div style="display:flex;align-items:center;gap:5px">
-    <span style="font-size:10px;color:var(--text2);letter-spacing:0.06em">${s.label}</span>
-    <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:${s.color}">${s.count}</span>
-  </div>`).join('');
+  ].map(s => {
+    const pulse = (s.label === 'DOWN' && s.count > 0) ? 'animation:pulse 1.5s ease-in-out infinite;' : '';
+    return `<div style="display:flex;align-items:center;gap:5px">
+      <span style="font-size:10px;color:var(--text2);letter-spacing:0.06em">${s.label}</span>
+      <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:${s.color};${pulse}">${s.count}</span>
+    </div>`;
+  }).join('');
 }
 
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 function renderSidebar() {
-  document.getElementById('svc-list').innerHTML = tools.map(tool => {
+  const sortOrder = t => t.is_timeout ? 0 : t.status === 'fehler' ? 1 : t.status === 'start' ? 2 : 3;
+  const sorted = [...tools].sort((a, b) => sortOrder(a) - sortOrder(b));
+  const lateTools   = sorted.filter(t => t.is_timeout);
+  const normalTools = sorted.filter(t => !t.is_timeout);
+
+  function svcItem(tool) {
     const status = mapStatus(tool);
     const active = tool.id === selectedId;
     const pulse = status === 'ok' ? 'animation:pulse 2s ease-in-out infinite;' : '';
     const dotStyle = `width:7px;height:7px;border-radius:50%;background:${dotColor(status)};flex-shrink:0;${pulse}`;
     const name = `${tool.server}/${tool.dienst}`;
     const interval = fmtInterval(tool.timeout_hours);
-    return `<div class="svc-item${active?' active':''}" onclick="selectTool(${tool.id})">
+    const extraStyle = tool.is_timeout ? 'background:rgba(239,68,68,0.07);' : '';
+    const subLine = tool.is_timeout
+      ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--err)">${esc(tool.timeout_reason)} · ${fmtAge(tool.last_seen)}</span>`
+      : `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${fmtAge(tool.last_seen)}${interval ? ` · every ${interval}` : ''}</span>`;
+    return `<div class="svc-item${active?' active':''}" onclick="selectTool(${tool.id})" style="${extraStyle}">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="${dotStyle}"></span>
         <span style="font-family:var(--font-mono);font-size:12px;color:${active?'var(--text0)':'var(--text1)'};font-weight:${active?500:400};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>
         ${tool.is_timeout ? '<span style="font-size:9px;background:var(--err-dim);color:var(--err);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);font-weight:600">LATE</span>' : ''}
       </div>
-      <div style="margin-top:4px;margin-left:15px;display:flex;gap:8px">
-        <span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${fmtAge(tool.last_seen)}</span>
-        ${interval ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">· every ${interval}</span>` : ''}
-      </div>
+      <div style="margin-top:4px;margin-left:15px">${subLine}</div>
     </div>`;
-  }).join('');
+  }
+
+  let html = '';
+  if (lateTools.length > 0) {
+    html += `<div style="padding:8px 14px 4px;font-size:9px;color:var(--err);letter-spacing:0.1em;font-weight:600;display:flex;align-items:center;gap:6px">
+      <span>OVERDUE</span>
+      <span style="background:var(--err-dim);color:var(--err);padding:1px 6px;border-radius:3px">${lateTools.length}</span>
+    </div>`;
+    html += lateTools.map(svcItem).join('');
+    html += `<div style="height:1px;background:var(--border);margin:6px 14px 4px"></div>
+      <div style="padding:4px 14px 4px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>`;
+  } else {
+    html += `<div style="padding:10px 14px 6px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>`;
+  }
+  html += normalTools.map(svcItem).join('');
+  document.getElementById('svc-list').innerHTML = html;
 }
 
 // ── History strip ──────────────────────────────────────────────────────────────
@@ -242,7 +265,15 @@ function renderDetail() {
   const dotPulse = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${statusColor};flex-shrink:0;animation:pulse 2s ease-in-out infinite`;
   const name = `${tool.server}/${tool.dienst}`;
 
-  document.getElementById('d-header').innerHTML = `
+  const alertBanner = tool.is_timeout ? `
+    <div style="display:flex;align-items:center;gap:12px;background:var(--err-dim);border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:10px 16px;margin-bottom:14px">
+      <span style="font-size:18px;color:var(--err);flex-shrink:0">⚠</span>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--err);letter-spacing:0.06em">OVERDUE — ${esc(tool.timeout_reason)}</div>
+        <div style="font-size:12px;color:var(--text1);margin-top:3px">Zuletzt gemeldet: ${fmtAge(tool.last_seen)} (${fmtDateTime(tool.last_seen)})</div>
+      </div>
+    </div>` : '';
+  document.getElementById('d-header').innerHTML = alertBanner + `
     <div style="display:flex;align-items:flex-start;justify-content:space-between">
       <div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
