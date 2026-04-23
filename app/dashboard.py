@@ -243,6 +243,27 @@ def tool_timeline_api(tool_id: int):
     return jsonify({'slots': slots, 'slot_minutes': slot_minutes, 'hours': hours})
 
 
+@dashboard_bp.route('/api/tools/<int:tool_id>/daytimeline')
+def tool_day_timeline_api(tool_id: int):
+    """Return raw history entries for the last 48h for the day-view timeline.
+
+    The frontend uses local time to bucket entries into a 00:00–24:00
+    day view: slots before 'now' show today, slots from 'now' show yesterday.
+    Capped at 1000 entries so very frequent services don't flood the response.
+    """
+    since = datetime.utcnow() - timedelta(hours=48)
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        """SELECT status, reported_at FROM history
+           WHERE tool_id = ? AND reported_at >= ?
+           ORDER BY reported_at ASC
+           LIMIT 1000""",
+        (tool_id, since.strftime('%Y-%m-%d %H:%M:%S')),
+    )
+    return jsonify({'entries': [dict(row) for row in cursor.fetchall()]})
+
+
 def tree_to_json(node, level=0):
     """Convert tree structure to JSON-friendly format.
     

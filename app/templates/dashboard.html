@@ -118,7 +118,7 @@ let tools = [];
 let selectedId = null;
 let currentTab = 'overview';
 let historyCache = {};
-let timelineCache = {};
+let dayTimelineCache = {};
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function mapStatus(tool) {
@@ -233,28 +233,63 @@ function renderSidebar() {
   document.getElementById('svc-list').innerHTML = html;
 }
 
-// ── 24h Timeline strip ─────────────────────────────────────────────────────────
-function renderTimeline(slots) {
-  if (!slots.length) return '<div style="color:var(--text2);font-family:var(--font-mono);font-size:11px">Keine Daten.</div>';
-  const bars = slots.map(slot => {
-    const bg = slot.status === 'ok'    ? 'var(--ok)'
-             : slot.status === 'error' ? 'var(--err)'
-             : slot.status === 'warn'  ? 'var(--warn)'
+// ── Day Timeline (00:00–24:00) ─────────────────────────────────────────────────
+function renderDayTimeline(entries) {
+  const SLOTS = 144, SLOT_MIN = 10;
+  const now = new Date();
+  const curSlot = Math.floor((now.getHours() * 60 + now.getMinutes()) / SLOT_MIN);
+
+  const todayMid = new Date(now); todayMid.setHours(0, 0, 0, 0);
+  const yestMid  = new Date(todayMid); yestMid.setDate(yestMid.getDate() - 1);
+
+  const priority = {error: 3, ok: 2, warn: 1};
+  const slots = Array.from({length: SLOTS}, () => ({status: null}));
+
+  (entries || []).forEach(e => {
+    const dt = new Date(e.reported_at.includes('Z') ? e.reported_at : e.reported_at + 'Z');
+    const slotIdx = Math.floor((dt.getHours() * 60 + dt.getMinutes()) / SLOT_MIN);
+    const dtMid = new Date(dt); dtMid.setHours(0, 0, 0, 0);
+    const isToday = dtMid.getTime() === todayMid.getTime();
+    const isYest  = dtMid.getTime() === yestMid.getTime();
+    // Slots before now → today's data; slots from now → yesterday's data
+    if (!((slotIdx < curSlot && isToday) || (slotIdx >= curSlot && isYest))) return;
+    const mapped = e.status === 'fehler' ? 'error'
+                 : (e.status === 'stop' || e.status === 'start') ? 'ok' : 'warn';
+    const cur = slots[slotIdx].status;
+    if (!cur || priority[mapped] > priority[cur]) slots[slotIdx].status = mapped;
+  });
+
+  const bars = slots.map((s, i) => {
+    const bg = s.status === 'ok'    ? 'var(--ok)'
+             : s.status === 'error' ? 'var(--err)'
+             : s.status === 'warn'  ? 'var(--warn)'
              : 'var(--border)';
-    const opacity = slot.status === null ? 0.35 : 1;
-    const label = slot.status || 'keine Aktivität';
-    const title = esc(`${fmtDateTime(slot.start)} — ${label}`);
-    return `<div title="${title}" style="flex:1;min-width:2px;height:20px;border-radius:1px;background:${bg};opacity:${opacity}"></div>`;
+    const hhmm = `${String(Math.floor(i * SLOT_MIN / 60)).padStart(2,'0')}:${String((i * SLOT_MIN) % 60).padStart(2,'0')}`;
+    const day = i < curSlot ? 'heute' : 'gestern';
+    return `<div title="${esc(hhmm + ' ' + day + ' — ' + (s.status || 'keine Aktivität'))}"
+      style="flex:1;min-width:2px;height:20px;border-radius:1px;background:${bg};opacity:${s.status ? 1 : 0.3}"></div>`;
   }).join('');
-  // Time axis: 5 labels evenly spaced (24h ago → now)
-  const labels = ['24h', '18h', '12h', '6h', 'jetzt'];
-  const axis = labels.map(l =>
-    `<span style="font-size:9px;color:var(--text2);font-family:var(--font-mono)">${l}</span>`
-  ).join('');
-  return `<div>
-    <div style="display:flex;gap:1px;align-items:stretch">${bars}</div>
-    <div style="display:flex;justify-content:space-between;margin-top:4px">${axis}</div>
-  </div>`;
+
+  const pct = (curSlot / SLOTS * 100).toFixed(2);
+  const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+  return `
+    <div style="position:relative">
+      <div style="display:flex;gap:1px">${bars}</div>
+      <div style="position:absolute;top:0;left:calc(${pct}% - 1px);width:2px;height:20px;
+           background:var(--warn);border-radius:1px;pointer-events:none"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">
+      ${['00:00','06:00','12:00','18:00','24:00'].map(l =>
+        `<span style="font-size:9px;color:var(--text2);font-family:var(--font-mono)">${l}</span>`
+      ).join('')}
+    </div>
+    <div style="position:relative;height:14px;margin-top:1px">
+      <span style="position:absolute;left:${pct}%;transform:translateX(-50%);
+            font-size:9px;color:var(--warn);font-family:var(--font-mono);white-space:nowrap">
+        &#9650; ${nowStr}
+      </span>
+    </div>`;
 }
 
 // ── Detail panel ───────────────────────────────────────────────────────────────
@@ -323,8 +358,8 @@ function renderTabBody(tool, history) {
     body.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:24px">
         <div>
-          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">PING HISTORY · LETZTE 24H · 10 MIN SLOTS</div>
-          ${renderTimeline(timelineCache[tool.id] || [])}
+          <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:10px">PING HISTORY · 00:00 – 24:00 · 10 MIN SLOTS</div>
+          ${renderDayTimeline(dayTimelineCache[tool.id] || [])}
         </div>
         <div>
           <div style="font-size:11px;color:var(--text2);letter-spacing:0.08em;font-weight:600;margin-bottom:8px">ENDPOINT</div>
@@ -385,7 +420,7 @@ async function selectTool(id) {
   currentTab = 'overview';
   localStorage.setItem('wd-selected', id);
   renderSidebar();
-  await Promise.all([fetchHistory(id), fetchTimeline(id)]);
+  await Promise.all([fetchHistory(id), fetchDayTimeline(id)]);
   renderDetail();
 }
 
@@ -396,11 +431,11 @@ async function fetchHistory(id) {
   } catch { historyCache[id] = []; }
 }
 
-async function fetchTimeline(id) {
+async function fetchDayTimeline(id) {
   try {
-    const r = await fetch(`/api/tools/${id}/timeline`);
-    timelineCache[id] = (await r.json()).slots || [];
-  } catch { timelineCache[id] = []; }
+    const r = await fetch(`/api/tools/${id}/daytimeline`);
+    dayTimelineCache[id] = (await r.json()).entries || [];
+  } catch { dayTimelineCache[id] = []; }
 }
 
 // ── Poll ───────────────────────────────────────────────────────────────────────
@@ -410,7 +445,7 @@ async function fetchStatus() {
     tools = data.tools || [];
     renderTopBar();
     renderSidebar();
-    if (selectedId) { await Promise.all([fetchHistory(selectedId), fetchTimeline(selectedId)]); renderDetail(); }
+    if (selectedId) { await Promise.all([fetchHistory(selectedId), fetchDayTimeline(selectedId)]); renderDetail(); }
   } catch(e) { console.error('Status fetch failed:', e); }
 }
 
