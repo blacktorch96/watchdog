@@ -3,13 +3,14 @@
 Copy this file into any project to report status to a Watchdog service.
 
 Usage:
-    from watchdog_client import WatchdogClient
+    from watchdog_client import WatchdogClient, DependencyError
 
     client = WatchdogClient("http://watchdog.example.com", server="web01")
     client.start("backup")
     client.stop("backup", kommentar="12 GB in 4m")
 
-    dt = client.last_success("backup")  # datetime | None
+    dt = client.last_success("backup")          # datetime | None
+    client.require_success("backup", within_minutes=60)  # raises DependencyError if stale
 
     with client.run("cleanup"):
         do_cleanup()  # auto start/stop; reports fehler on exception
@@ -18,9 +19,12 @@ Usage:
 import contextlib
 import datetime
 import json
-import urllib.error
 import urllib.parse
 import urllib.request
+
+
+class DependencyError(RuntimeError):
+    """Raised when a required dependency service has not run within the expected window."""
 
 
 class WatchdogClient:
@@ -49,11 +53,11 @@ class WatchdogClient:
         """POST a status report to the Watchdog service.
 
         Args:
-            dienst:   Service / tool name.
-            status:   One of: start, stop, fehler, update.
-            gruppe:   Optional group path (e.g. 'Backup/DB').
+            dienst:    Service / tool name.
+            status:    One of: start, stop, fehler, update.
+            gruppe:    Optional group path (e.g. 'Backup/DB').
             kommentar: Optional free-text comment.
-            pid:      Optional process ID string.
+            pid:       Optional process ID string.
 
         Returns:
             True on HTTP 200, False on any error (network or non-200 response).
@@ -98,16 +102,21 @@ class WatchdogClient:
         """Report status='update' for dienst."""
         return self.report(dienst, "update", **kwargs)
 
-    def last_success(self, dienst: str) -> datetime.datetime | None:
-        """Return when dienst last completed successfully on this server.
+    def last_success(
+        self, dienst: str, server: str | None = None
+    ) -> datetime.datetime | None:
+        """Return when dienst last completed successfully.
 
-        Queries GET /api/tools/last-success?server=...&dienst=...
+        Args:
+            dienst:  Service name to query.
+            server:  Override server name (defaults to self._server).
 
         Returns:
             Parsed datetime of the last stop-status report, or None if
             no successful run is recorded or on any network/parse error.
         """
-        params = urllib.parse.urlencode({"server": self._server, "dienst": dienst})
+        srv = server if server is not None else self._server
+        params = urllib.parse.urlencode({"server": srv, "dienst": dienst})
         url = f"{self._base_url}/api/tools/last-success?{params}"
         try:
             with urllib.request.urlopen(url, timeout=self._timeout) as resp:
@@ -117,6 +126,38 @@ class WatchdogClient:
                 return datetime.datetime.fromisoformat(body["reported_at"])
         except Exception:
             return None
+
+    def require_success(
+        self,
+        dienst: str,
+        within_minutes: int,
+        server: str | None = None,
+    ) -> None:
+        """Assert that dienst ran successfully within the last within_minutes minutes.
+
+        Use this to declare a dependency before executing a downstream service.
+
+        Args:
+            dienst:         Dependency service name to check.
+            within_minutes: Maximum age of the last successful run in minutes.
+            server:         Server to check (defaults to self._server).
+
+        Raises:
+            DependencyError: If no successful run was found within the window.
+        """
+        srv = server if server is not None else self._server
+        dt = self.last_success(dienst, server=srv)
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=within_minutes)
+        if dt is None or dt < cutoff:
+            if dt is None:
+                age_str = "never"
+            else:
+                age_min = int((datetime.datetime.utcnow() - dt).total_seconds() / 60)
+                age_str = f"last success {age_min}m ago"
+            raise DependencyError(
+                f"Prerequisite not met: '{dienst}' on '{srv}' "
+                f"did not succeed within the last {within_minutes}m ({age_str})"
+            )
 
     @contextlib.contextmanager
     def run(
