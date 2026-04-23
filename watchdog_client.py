@@ -5,7 +5,12 @@ Copy this file into any project to report status to a Watchdog service.
 Usage:
     from watchdog_client import WatchdogClient, DependencyError
 
+    # Explicit:
     client = WatchdogClient("http://watchdog.example.com", server="web01")
+
+    # Via environment variables (WATCHDOG_URL + WATCHDOG_SERVER in .env):
+    client = WatchdogClient()
+
     client.start("backup")
     client.stop("backup", kommentar="12 GB in 4m")
 
@@ -20,11 +25,12 @@ Usage:
     # → {'local': '1.1.0', 'remote': '1.1.0', 'up_to_date': True}
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 import contextlib
 import datetime
 import json
+import os
 import urllib.parse
 import urllib.request
 
@@ -44,16 +50,39 @@ class DependencyError(RuntimeError):
 class WatchdogClient:
     """HTTP client for the Watchdog status service."""
 
-    def __init__(self, base_url: str, server: str, timeout: int = 10) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        server: str | None = None,
+        timeout: int = 10,
+    ) -> None:
         """Initialise client.
+
+        Both base_url and server can be omitted when the environment variables
+        WATCHDOG_URL and WATCHDOG_SERVER are set (e.g. via a .env file).
 
         Args:
             base_url: Base URL of the Watchdog service (e.g. 'http://host:5050').
+                      Falls back to the WATCHDOG_URL environment variable.
             server:   Server name reported with every status call.
+                      Falls back to the WATCHDOG_SERVER environment variable.
             timeout:  HTTP request timeout in seconds.
+
+        Raises:
+            ValueError: If base_url or server cannot be resolved from params or env.
         """
-        self._base_url = base_url.rstrip("/")
-        self._server = server
+        resolved_url = base_url or os.environ.get("WATCHDOG_URL", "")
+        resolved_server = server or os.environ.get("WATCHDOG_SERVER", "")
+        if not resolved_url:
+            raise ValueError(
+                "base_url is required. Pass it explicitly or set the WATCHDOG_URL environment variable."
+            )
+        if not resolved_server:
+            raise ValueError(
+                "server is required. Pass it explicitly or set the WATCHDOG_SERVER environment variable."
+            )
+        self._base_url = resolved_url.rstrip("/")
+        self._server = resolved_server
         self._timeout = timeout
 
     def report(

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Client — Watchdog{% endblock %}
+{% block subnav %}client{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <span class="page-title">Python Client</span>
+  <a href="/download/watchdog_client.py" class="wd-btn wd-btn-primary">↓ watchdog_client.py</a>
+</div>
+
+<div style="display:grid;gap:20px;max-width:760px">
+
+  <div class="wd-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <span style="font-size:13px;font-weight:600;color:var(--text0);font-family:var(--font-mono)">Aktuelle Version</span>
+      <span class="wd-badge" style="background:var(--blue-dim);color:var(--blue);font-size:12px;padding:3px 10px">v{{ version }}</span>
+    </div>
+    <p style="font-size:12px;color:var(--text1);line-height:1.7;font-family:var(--font-mono)">
+      Standalone-Modul ohne externe Abhängigkeiten. Einfach in jedes Projekt kopieren und importieren.
+      Verbindungsparameter können per <span style="color:var(--text0)">.env</span>-Datei gesetzt werden —
+      kein Hardcoding in einzelnen Skripten nötig.
+    </p>
+  </div>
+
+  <div class="wd-card">
+    <div style="font-size:10px;font-weight:600;color:var(--text2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">.env Konfiguration</div>
+    <pre style="background:var(--bg2);border:1px solid var(--border2);border-radius:5px;padding:14px;font-size:12px;color:var(--text0);overflow-x:auto;line-height:1.6"><span style="color:var(--text2)"># .env</span>
+WATCHDOG_URL=http://{{ request.host }}
+WATCHDOG_SERVER=mein-server</pre>
+    <p style="font-size:11px;color:var(--text2);margin-top:10px;font-family:var(--font-mono)">
+      Mit <a href="https://pypi.org/project/python-dotenv/" style="color:var(--blue);text-decoration:none">python-dotenv</a> automatisch laden oder per Systemumgebung / Docker / systemd setzen.
+    </p>
+  </div>
+
+  <div class="wd-card">
+    <div style="font-size:10px;font-weight:600;color:var(--text2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Schnellstart</div>
+    <pre style="background:var(--bg2);border:1px solid var(--border2);border-radius:5px;padding:14px;font-size:12px;color:var(--text0);overflow-x:auto;line-height:1.6"><span style="color:var(--text2)">from</span> dotenv <span style="color:var(--text2)">import</span> load_dotenv
+<span style="color:var(--text2)">from</span> watchdog_client <span style="color:var(--text2)">import</span> WatchdogClient, DependencyError
+
+load_dotenv()                   <span style="color:var(--text2)"># liest WATCHDOG_URL + WATCHDOG_SERVER aus .env</span>
+client = WatchdogClient()       <span style="color:var(--text2)"># keine Parameter nötig</span>
+
+<span style="color:var(--text2)"># Einfache Meldungen</span>
+client.start(<span style="color:var(--ok)">"backup"</span>)
+client.stop(<span style="color:var(--ok)">"backup"</span>, kommentar=<span style="color:var(--ok)">"12 GB in 4m"</span>)
+
+<span style="color:var(--text2)"># Context Manager (auto start/stop, meldet fehler bei Exception)</span>
+<span style="color:var(--text2)">with</span> client.run(<span style="color:var(--ok)">"cleanup"</span>):
+    do_cleanup()
+
+<span style="color:var(--text2)"># Abhängigkeit prüfen</span>
+client.require_success(<span style="color:var(--ok)">"backup"</span>, within_minutes=<span style="color:var(--warn)">60</span>)
+
+<span style="color:var(--text2)"># Version prüfen</span>
+info = client.check_version()
+<span style="color:var(--text2)"># → {'local': '{{ version }}', 'remote': '{{ version }}', 'up_to_date': True}</span></pre>
+  </div>
+
+  <div class="wd-card">
+    <div style="font-size:10px;font-weight:600;color:var(--text2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">API-Referenz</div>
+    <table class="wd-table">
+      <thead>
+        <tr><th>Methode</th><th>Beschreibung</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code style="color:var(--blue)">report(dienst, status, …)</code></td>
+          <td style="color:var(--text1)">Status melden — start, stop, fehler, update</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--blue)">start / stop / error / update(dienst)</code></td>
+          <td style="color:var(--text1)">Shortcuts für report()</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--blue)">run(dienst)</code></td>
+          <td style="color:var(--text1)">Context Manager: start → stop / fehler bei Exception</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--blue)">last_success(dienst)</code></td>
+          <td style="color:var(--text1)">Letzten erfolgreichen Lauf als datetime abfragen</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--blue)">require_success(dienst, within_minutes)</code></td>
+          <td style="color:var(--text1)">Wirft DependencyError wenn Dienst nicht rechtzeitig lief</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--blue)">check_version()</code></td>
+          <td style="color:var(--text1)">Vergleicht lokale Version mit Server-Version</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}

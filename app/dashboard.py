@@ -3,7 +3,7 @@
 import os
 import re
 import tomllib
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, send_file
 from app.database import get_db, get_last_success
 from datetime import datetime, timedelta
 
@@ -224,6 +224,19 @@ def client_version_api():
         200 {'version': str}
     """
     return jsonify({"version": CLIENT_VERSION}), 200
+
+
+@dashboard_bp.route('/client')
+def client_page():
+    """Client download info page."""
+    return render_template('client.html', version=CLIENT_VERSION)
+
+
+@dashboard_bp.route('/download/watchdog_client.py')
+def download_client():
+    """Serve watchdog_client.py as a file download."""
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'watchdog_client.py')
+    return send_file(path, as_attachment=True, download_name='watchdog_client.py')
 
 
 @dashboard_bp.route('/api/tools/<int:tool_id>/timeline')
