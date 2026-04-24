@@ -60,6 +60,8 @@
 
   .dark-input { background: var(--bg2); border: 1px solid var(--border2); border-radius: 5px; padding: 8px 10px; color: var(--text0); font-family: var(--font-mono); font-size: 13px; outline: none; width: 100%; }
   .dark-input:focus { border-color: var(--blue); }
+
+  .sort-btn { font-size:10px; font-family:var(--font-mono); padding:3px 8px; border-radius:4px; border:1px solid var(--border); background:var(--bg3); color:var(--text2); cursor:pointer; transition:all 0.15s; }
 </style>
 </head>
 <body>
@@ -89,6 +91,19 @@
 
     <!-- Sidebar -->
     <div id="sidebar">
+      <!-- Filter + Sort controls -->
+      <div style="padding:8px 10px 6px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <input type="search" id="svc-filter" class="dark-input"
+               placeholder="Filter …" style="font-size:11px;padding:5px 8px"
+               oninput="onFilter(this.value)">
+        <div style="display:flex;align-items:center;gap:4px;margin-top:6px">
+          <span style="font-size:9px;color:var(--text2);letter-spacing:0.08em;font-weight:600;flex-shrink:0;margin-right:2px">SORT</span>
+          <button class="sort-btn" data-mode="status" onclick="setSortMode('status')">Status</button>
+          <button class="sort-btn" data-mode="name"   onclick="setSortMode('name')">Name</button>
+          <button class="sort-btn" data-mode="time"   onclick="setSortMode('time')">Zeit</button>
+          <button class="sort-btn" data-mode="group"  onclick="setSortMode('group')">Gruppe</button>
+        </div>
+      </div>
       <div id="svc-list"></div>
       <div style="flex:1"></div>
       <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -119,6 +134,8 @@ let selectedId = null;
 let currentTab = 'overview';
 let historyCache = {};
 let dayTimelineCache = {};
+let filterText = '';
+let sortMode = 'status';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function mapStatus(tool) {
@@ -189,47 +206,92 @@ function renderTopBar() {
   }).join('');
 }
 
+// ── Filter & Sort ─────────────────────────────────────────────────────────────
+function onFilter(val) {
+  filterText = val.trim().toLowerCase();
+  renderSidebar();
+}
+
+function setSortMode(mode) {
+  sortMode = mode;
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    const active = btn.dataset.mode === mode;
+    btn.style.background  = active ? 'var(--blue)' : 'var(--bg3)';
+    btn.style.color       = active ? '#fff'         : 'var(--text2)';
+    btn.style.borderColor = active ? 'var(--blue)'  : 'var(--border)';
+  });
+  renderSidebar();
+}
+
+function sortTools(list) {
+  const statusOrder = t => t.is_timeout ? 0 : t.status === 'fehler' ? 1 : t.status === 'start' ? 2 : 3;
+  const byName = (a, b) => `${a.server}/${a.dienst}`.localeCompare(`${b.server}/${b.dienst}`);
+  switch (sortMode) {
+    case 'name':  return [...list].sort(byName);
+    case 'time':  return [...list].sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+    case 'group': return [...list].sort((a, b) => (a.gruppe||'').localeCompare(b.gruppe||'') || byName(a, b));
+    default:      return [...list].sort((a, b) => statusOrder(a) - statusOrder(b) || byName(a, b));
+  }
+}
+
 // ── Sidebar ────────────────────────────────────────────────────────────────────
+function svcItem(tool) {
+  const status = mapStatus(tool);
+  const active = tool.id === selectedId;
+  const pulse = status === 'ok' ? 'animation:pulse 2s ease-in-out infinite;' : '';
+  const dotStyle = `width:7px;height:7px;border-radius:50%;background:${dotColor(status)};flex-shrink:0;${pulse}`;
+  const name = `${tool.server}/${tool.dienst}`;
+  const interval = fmtInterval(tool.timeout_hours);
+  const extraStyle = tool.is_timeout ? 'background:rgba(239,68,68,0.07);' : '';
+  const subLine = tool.is_timeout
+    ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--err)">${esc(tool.timeout_reason)} · ${fmtAge(tool.last_seen)}</span>`
+    : `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${fmtAge(tool.last_seen)}${interval ? ` · every ${interval}` : ''}</span>`;
+  return `<div class="svc-item${active?' active':''}" onclick="selectTool(${tool.id})" style="${extraStyle}">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="${dotStyle}"></span>
+      <span style="font-family:var(--font-mono);font-size:12px;color:${active?'var(--text0)':'var(--text1)'};font-weight:${active?500:400};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>
+      ${tool.is_timeout ? '<span style="font-size:9px;background:var(--err-dim);color:var(--err);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);font-weight:600">LATE</span>' : ''}
+    </div>
+    <div style="margin-top:4px;margin-left:15px">${subLine}</div>
+  </div>`;
+}
+
 function renderSidebar() {
-  const sortOrder = t => t.is_timeout ? 0 : t.status === 'fehler' ? 1 : t.status === 'start' ? 2 : 3;
-  const sorted = [...tools].sort((a, b) => sortOrder(a) - sortOrder(b));
-  const lateTools   = sorted.filter(t => t.is_timeout);
-  const normalTools = sorted.filter(t => !t.is_timeout);
+  const q = filterText;
+  const filtered = q
+    ? tools.filter(t =>
+        [t.server, t.dienst, t.gruppe || '', t.kommentar || '', t.status]
+          .some(v => v.toLowerCase().includes(q))
+      )
+    : tools;
 
-  function svcItem(tool) {
-    const status = mapStatus(tool);
-    const active = tool.id === selectedId;
-    const pulse = status === 'ok' ? 'animation:pulse 2s ease-in-out infinite;' : '';
-    const dotStyle = `width:7px;height:7px;border-radius:50%;background:${dotColor(status)};flex-shrink:0;${pulse}`;
-    const name = `${tool.server}/${tool.dienst}`;
-    const interval = fmtInterval(tool.timeout_hours);
-    const extraStyle = tool.is_timeout ? 'background:rgba(239,68,68,0.07);' : '';
-    const subLine = tool.is_timeout
-      ? `<span style="font-family:var(--font-mono);font-size:10px;color:var(--err)">${esc(tool.timeout_reason)} · ${fmtAge(tool.last_seen)}</span>`
-      : `<span style="font-family:var(--font-mono);font-size:10px;color:var(--text2)">${fmtAge(tool.last_seen)}${interval ? ` · every ${interval}` : ''}</span>`;
-    return `<div class="svc-item${active?' active':''}" onclick="selectTool(${tool.id})" style="${extraStyle}">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="${dotStyle}"></span>
-        <span style="font-family:var(--font-mono);font-size:12px;color:${active?'var(--text0)':'var(--text1)'};font-weight:${active?500:400};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span>
-        ${tool.is_timeout ? '<span style="font-size:9px;background:var(--err-dim);color:var(--err);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);font-weight:600">LATE</span>' : ''}
-      </div>
-      <div style="margin-top:4px;margin-left:15px">${subLine}</div>
-    </div>`;
-  }
-
+  const sorted = sortTools(filtered);
   let html = '';
-  if (lateTools.length > 0) {
-    html += `<div style="padding:8px 14px 4px;font-size:9px;color:var(--err);letter-spacing:0.1em;font-weight:600;display:flex;align-items:center;gap:6px">
-      <span>OVERDUE</span>
-      <span style="background:var(--err-dim);color:var(--err);padding:1px 6px;border-radius:3px">${lateTools.length}</span>
+
+  if (q) {
+    const nOverdue = sorted.filter(t => t.is_timeout).length;
+    html += `<div style="padding:6px 14px 4px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600;display:flex;align-items:center;gap:6px">
+      <span>${sorted.length} TREFFER</span>
+      ${nOverdue > 0 ? `<span style="background:var(--err-dim);color:var(--err);padding:1px 6px;border-radius:3px">${nOverdue} overdue</span>` : ''}
     </div>`;
-    html += lateTools.map(svcItem).join('');
-    html += `<div style="height:1px;background:var(--border);margin:6px 14px 4px"></div>
-      <div style="padding:4px 14px 4px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>`;
+    html += sorted.map(svcItem).join('');
   } else {
-    html += `<div style="padding:10px 14px 6px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>`;
+    const lateTools   = sorted.filter(t => t.is_timeout);
+    const normalTools = sorted.filter(t => !t.is_timeout);
+    if (lateTools.length > 0) {
+      html += `<div style="padding:8px 14px 4px;font-size:9px;color:var(--err);letter-spacing:0.1em;font-weight:600;display:flex;align-items:center;gap:6px">
+        <span>OVERDUE</span>
+        <span style="background:var(--err-dim);color:var(--err);padding:1px 6px;border-radius:3px">${lateTools.length}</span>
+      </div>`;
+      html += lateTools.map(svcItem).join('');
+      html += `<div style="height:1px;background:var(--border);margin:6px 14px 4px"></div>
+        <div style="padding:4px 14px 4px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>`;
+    } else {
+      html += `<div style="padding:10px 14px 6px;font-size:9px;color:var(--text2);letter-spacing:0.1em;font-weight:600">SERVICES</div>`;
+    }
+    html += normalTools.map(svcItem).join('');
   }
-  html += normalTools.map(svcItem).join('');
+
   document.getElementById('svc-list').innerHTML = html;
 }
 
@@ -451,6 +513,7 @@ async function fetchStatus() {
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 async function init() {
+  setSortMode('status');
   await fetchStatus();
   const saved = parseInt(localStorage.getItem('wd-selected'));
   const target = (saved && tools.find(t => t.id === saved)) ? saved : (tools[0] && tools[0].id);
