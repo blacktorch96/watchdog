@@ -23,7 +23,7 @@ def report_status():
         JSON response with ok: true
     """
     # Get parameters from query or form data
-    data = request.args if request.method == 'GET' else request.get_json() or request.form
+    data = request.args if request.method == 'GET' else request.get_json(silent=True) or request.form
     
     server = data.get('server', '')
     dienst = data.get('dienst', '')
