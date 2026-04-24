@@ -25,7 +25,7 @@ Usage:
     # → {'local': '1.1.0', 'remote': '1.1.0', 'up_to_date': True}
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 import contextlib
 import datetime
@@ -46,6 +46,30 @@ def _parse_version(v: str) -> tuple:
 
 class DependencyError(RuntimeError):
     """Raised when a required dependency service has not run within the expected window."""
+
+
+class _RunContext:
+    """Bound helper yielded by WatchdogClient.run().
+
+    Provides a dienst-bound update() so callers don't have to repeat the name.
+    """
+
+    def __init__(self, client: "WatchdogClient", dienst: str, pid: str | None) -> None:
+        """Initialise with a reference to the client and the active dienst."""
+        self._client = client
+        self._dienst = dienst
+        self._pid = pid
+
+    def update(self, kommentar: str) -> bool:
+        """Send a progress update (status='update') for the running service.
+
+        Args:
+            kommentar: Free-text progress message, e.g. 'Schritt 2/5'.
+
+        Returns:
+            True on success, False on any error.
+        """
+        return self._client.update(self._dienst, kommentar=kommentar, pid=self._pid)
 
 
 class WatchdogClient:
@@ -254,15 +278,20 @@ class WatchdogClient:
     ):
         """Context manager: report start on enter, stop on success, fehler on exception.
 
+        Yields a _RunContext with a bound update() method so callers can send
+        progress reports without repeating the dienst name.
         The original exception is always re-raised so callers still see it.
 
         Usage:
-            with client.run("backup"):
-                do_backup()
+            with client.run("backup") as job:
+                job.update("Schritt 1/3")
+                do_step1()
+                job.update("Schritt 2/3")
+                do_step2()
         """
         self.start(dienst, gruppe=gruppe, kommentar=kommentar, pid=pid)
         try:
-            yield self
+            yield _RunContext(self, dienst, pid)
         except Exception as exc:
             self.error(dienst, kommentar=str(exc), pid=pid)
             raise
