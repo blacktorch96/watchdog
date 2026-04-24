@@ -31,6 +31,7 @@ import contextlib
 import datetime
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -84,6 +85,7 @@ class WatchdogClient:
         self._base_url = resolved_url.rstrip("/")
         self._server = resolved_server
         self._timeout = timeout
+        self._last_error: str | None = None
 
     def report(
         self,
@@ -125,8 +127,14 @@ class WatchdogClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                self._last_error = None
                 return resp.status == 200
-        except Exception:
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode(errors="replace")
+            self._last_error = f"HTTP {exc.code} {exc.reason}: {body}"
+            return False
+        except Exception as exc:
+            self._last_error = repr(exc)
             return False
 
     def start(self, dienst: str, **kwargs) -> bool:
@@ -206,6 +214,11 @@ class WatchdogClient:
     def version(self) -> str:
         """Return the version of this client module."""
         return __version__
+
+    @property
+    def last_error(self) -> str | None:
+        """Return the error detail from the last failed report() call, or None if successful."""
+        return self._last_error
 
     def check_version(self) -> dict:
         """Check whether this client copy is up to date with the server's canonical version.
